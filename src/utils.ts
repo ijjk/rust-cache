@@ -2,6 +2,7 @@ import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 import * as buildjetCache from "@actions/buildjet-cache";
 import * as ghCache from "@actions/cache";
+import * as turboCache from "./turbo-cache";
 
 export function reportError(e: any) {
   const { commandFailed } = e;
@@ -16,7 +17,7 @@ export function reportError(e: any) {
 export async function getCmdOutput(
   cmd: string,
   args: Array<string> = [],
-  options: exec.ExecOptions = {},
+  options: exec.ExecOptions = {}
 ): Promise<string> {
   let stdout = "";
   let stderr = "";
@@ -50,7 +51,14 @@ export interface CacheProvider {
 
 export function getCacheProvider(): CacheProvider {
   const cacheProvider = core.getInput("cache-provider");
-  const cache = cacheProvider === "github" ? ghCache : cacheProvider === "buildjet" ? buildjetCache : undefined;
+  const cache =
+    cacheProvider === "turbo"
+      ? turboCache
+      : cacheProvider === "github"
+      ? ghCache
+      : cacheProvider === "buildjet"
+      ? buildjetCache
+      : undefined;
 
   if (!cache) {
     throw new Error(`The \`cache-provider\` \`{cacheProvider}\` is not valid.`);

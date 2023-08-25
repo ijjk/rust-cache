@@ -70,7 +70,7 @@ sensible defaults.
     save-if: ${{ github.ref == 'refs/heads/master' }}
 
     # Specifies what to use as the backend providing cache
-    # Can be set to either "github" or "buildjet"
+    # Can be set to either "turbo" or "github" or "buildjet"
     # default: "github"
     cache-provider: ""
 ```

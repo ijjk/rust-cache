@@ -2,7 +2,7 @@
   "compilerOptions": {
     "noEmitOnError": false,
     "diagnostics": true,
-    "lib": ["esnext"],
+    "lib": ["esnext", "dom"],
 
     "target": "es2020",
 
