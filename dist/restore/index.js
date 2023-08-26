@@ -43540,181 +43540,6 @@ function expand(str, isTop) {
 
 /***/ }),
 
-/***/ 2032:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const fs = __nccwpck_require__(7147)
-const path = __nccwpck_require__(1017)
-
-/* istanbul ignore next */
-const LCHOWN = fs.lchown ? 'lchown' : 'chown'
-/* istanbul ignore next */
-const LCHOWNSYNC = fs.lchownSync ? 'lchownSync' : 'chownSync'
-
-/* istanbul ignore next */
-const needEISDIRHandled = fs.lchown &&
-  !process.version.match(/v1[1-9]+\./) &&
-  !process.version.match(/v10\.[6-9]/)
-
-const lchownSync = (path, uid, gid) => {
-  try {
-    return fs[LCHOWNSYNC](path, uid, gid)
-  } catch (er) {
-    if (er.code !== 'ENOENT')
-      throw er
-  }
-}
-
-/* istanbul ignore next */
-const chownSync = (path, uid, gid) => {
-  try {
-    return fs.chownSync(path, uid, gid)
-  } catch (er) {
-    if (er.code !== 'ENOENT')
-      throw er
-  }
-}
-
-/* istanbul ignore next */
-const handleEISDIR =
-  needEISDIRHandled ? (path, uid, gid, cb) => er => {
-    // Node prior to v10 had a very questionable implementation of
-    // fs.lchown, which would always try to call fs.open on a directory
-    // Fall back to fs.chown in those cases.
-    if (!er || er.code !== 'EISDIR')
-      cb(er)
-    else
-      fs.chown(path, uid, gid, cb)
-  }
-  : (_, __, ___, cb) => cb
-
-/* istanbul ignore next */
-const handleEISDirSync =
-  needEISDIRHandled ? (path, uid, gid) => {
-    try {
-      return lchownSync(path, uid, gid)
-    } catch (er) {
-      if (er.code !== 'EISDIR')
-        throw er
-      chownSync(path, uid, gid)
-    }
-  }
-  : (path, uid, gid) => lchownSync(path, uid, gid)
-
-// fs.readdir could only accept an options object as of node v6
-const nodeVersion = process.version
-let readdir = (path, options, cb) => fs.readdir(path, options, cb)
-let readdirSync = (path, options) => fs.readdirSync(path, options)
-/* istanbul ignore next */
-if (/^v4\./.test(nodeVersion))
-  readdir = (path, options, cb) => fs.readdir(path, cb)
-
-const chown = (cpath, uid, gid, cb) => {
-  fs[LCHOWN](cpath, uid, gid, handleEISDIR(cpath, uid, gid, er => {
-    // Skip ENOENT error
-    cb(er && er.code !== 'ENOENT' ? er : null)
-  }))
-}
-
-const chownrKid = (p, child, uid, gid, cb) => {
-  if (typeof child === 'string')
-    return fs.lstat(path.resolve(p, child), (er, stats) => {
-      // Skip ENOENT error
-      if (er)
-        return cb(er.code !== 'ENOENT' ? er : null)
-      stats.name = child
-      chownrKid(p, stats, uid, gid, cb)
-    })
-
-  if (child.isDirectory()) {
-    chownr(path.resolve(p, child.name), uid, gid, er => {
-      if (er)
-        return cb(er)
-      const cpath = path.resolve(p, child.name)
-      chown(cpath, uid, gid, cb)
-    })
-  } else {
-    const cpath = path.resolve(p, child.name)
-    chown(cpath, uid, gid, cb)
-  }
-}
-
-
-const chownr = (p, uid, gid, cb) => {
-  readdir(p, { withFileTypes: true }, (er, children) => {
-    // any error other than ENOTDIR or ENOTSUP means it's not readable,
-    // or doesn't exist.  give up.
-    if (er) {
-      if (er.code === 'ENOENT')
-        return cb()
-      else if (er.code !== 'ENOTDIR' && er.code !== 'ENOTSUP')
-        return cb(er)
-    }
-    if (er || !children.length)
-      return chown(p, uid, gid, cb)
-
-    let len = children.length
-    let errState = null
-    const then = er => {
-      if (errState)
-        return
-      if (er)
-        return cb(errState = er)
-      if (-- len === 0)
-        return chown(p, uid, gid, cb)
-    }
-
-    children.forEach(child => chownrKid(p, child, uid, gid, then))
-  })
-}
-
-const chownrKidSync = (p, child, uid, gid) => {
-  if (typeof child === 'string') {
-    try {
-      const stats = fs.lstatSync(path.resolve(p, child))
-      stats.name = child
-      child = stats
-    } catch (er) {
-      if (er.code === 'ENOENT')
-        return
-      else
-        throw er
-    }
-  }
-
-  if (child.isDirectory())
-    chownrSync(path.resolve(p, child.name), uid, gid)
-
-  handleEISDirSync(path.resolve(p, child.name), uid, gid)
-}
-
-const chownrSync = (p, uid, gid) => {
-  let children
-  try {
-    children = readdirSync(p, { withFileTypes: true })
-  } catch (er) {
-    if (er.code === 'ENOENT')
-      return
-    else if (er.code === 'ENOTDIR' || er.code === 'ENOTSUP')
-      return handleEISDirSync(p, uid, gid)
-    else
-      throw er
-  }
-
-  if (children && children.length)
-    children.forEach(child => chownrKidSync(p, child, uid, gid))
-
-  return handleEISDirSync(p, uid, gid)
-}
-
-module.exports = chownr
-chownr.sync = chownrSync
-
-
-/***/ }),
-
 /***/ 5127:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -43946,6 +43771,363 @@ module.exports = function (xs, fn) {
 var isArray = Array.isArray || function (xs) {
     return Object.prototype.toString.call(xs) === '[object Array]';
 };
+
+
+/***/ }),
+
+/***/ 9859:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const cp = __nccwpck_require__(2081);
+const parse = __nccwpck_require__(3069);
+const enoent = __nccwpck_require__(6775);
+
+function spawn(command, args, options) {
+    // Parse the arguments
+    const parsed = parse(command, args, options);
+
+    // Spawn the child process
+    const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
+
+    // Hook into child process "exit" event to emit an error if the command
+    // does not exists, see: https://github.com/IndigoUnited/node-cross-spawn/issues/16
+    enoent.hookChildProcess(spawned, parsed);
+
+    return spawned;
+}
+
+function spawnSync(command, args, options) {
+    // Parse the arguments
+    const parsed = parse(command, args, options);
+
+    // Spawn the child process
+    const result = cp.spawnSync(parsed.command, parsed.args, parsed.options);
+
+    // Analyze if the command does not exist, see: https://github.com/IndigoUnited/node-cross-spawn/issues/16
+    result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
+
+    return result;
+}
+
+module.exports = spawn;
+module.exports.spawn = spawn;
+module.exports.sync = spawnSync;
+
+module.exports._parse = parse;
+module.exports._enoent = enoent;
+
+
+/***/ }),
+
+/***/ 6775:
+/***/ ((module) => {
+
+"use strict";
+
+
+const isWin = process.platform === 'win32';
+
+function notFoundError(original, syscall) {
+    return Object.assign(new Error(`${syscall} ${original.command} ENOENT`), {
+        code: 'ENOENT',
+        errno: 'ENOENT',
+        syscall: `${syscall} ${original.command}`,
+        path: original.command,
+        spawnargs: original.args,
+    });
+}
+
+function hookChildProcess(cp, parsed) {
+    if (!isWin) {
+        return;
+    }
+
+    const originalEmit = cp.emit;
+
+    cp.emit = function (name, arg1) {
+        // If emitting "exit" event and exit code is 1, we need to check if
+        // the command exists and emit an "error" instead
+        // See https://github.com/IndigoUnited/node-cross-spawn/issues/16
+        if (name === 'exit') {
+            const err = verifyENOENT(arg1, parsed, 'spawn');
+
+            if (err) {
+                return originalEmit.call(cp, 'error', err);
+            }
+        }
+
+        return originalEmit.apply(cp, arguments); // eslint-disable-line prefer-rest-params
+    };
+}
+
+function verifyENOENT(status, parsed) {
+    if (isWin && status === 1 && !parsed.file) {
+        return notFoundError(parsed.original, 'spawn');
+    }
+
+    return null;
+}
+
+function verifyENOENTSync(status, parsed) {
+    if (isWin && status === 1 && !parsed.file) {
+        return notFoundError(parsed.original, 'spawnSync');
+    }
+
+    return null;
+}
+
+module.exports = {
+    hookChildProcess,
+    verifyENOENT,
+    verifyENOENTSync,
+    notFoundError,
+};
+
+
+/***/ }),
+
+/***/ 3069:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const path = __nccwpck_require__(1017);
+const resolveCommand = __nccwpck_require__(6841);
+const escape = __nccwpck_require__(1445);
+const readShebang = __nccwpck_require__(9574);
+
+const isWin = process.platform === 'win32';
+const isExecutableRegExp = /\.(?:com|exe)$/i;
+const isCmdShimRegExp = /node_modules[\\/].bin[\\/][^\\/]+\.cmd$/i;
+
+function detectShebang(parsed) {
+    parsed.file = resolveCommand(parsed);
+
+    const shebang = parsed.file && readShebang(parsed.file);
+
+    if (shebang) {
+        parsed.args.unshift(parsed.file);
+        parsed.command = shebang;
+
+        return resolveCommand(parsed);
+    }
+
+    return parsed.file;
+}
+
+function parseNonShell(parsed) {
+    if (!isWin) {
+        return parsed;
+    }
+
+    // Detect & add support for shebangs
+    const commandFile = detectShebang(parsed);
+
+    // We don't need a shell if the command filename is an executable
+    const needsShell = !isExecutableRegExp.test(commandFile);
+
+    // If a shell is required, use cmd.exe and take care of escaping everything correctly
+    // Note that `forceShell` is an hidden option used only in tests
+    if (parsed.options.forceShell || needsShell) {
+        // Need to double escape meta chars if the command is a cmd-shim located in `node_modules/.bin/`
+        // The cmd-shim simply calls execute the package bin file with NodeJS, proxying any argument
+        // Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,
+        // we need to double escape them
+        const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
+
+        // Normalize posix paths into OS compatible paths (e.g.: foo/bar -> foo\bar)
+        // This is necessary otherwise it will always fail with ENOENT in those cases
+        parsed.command = path.normalize(parsed.command);
+
+        // Escape command & arguments
+        parsed.command = escape.command(parsed.command);
+        parsed.args = parsed.args.map((arg) => escape.argument(arg, needsDoubleEscapeMetaChars));
+
+        const shellCommand = [parsed.command].concat(parsed.args).join(' ');
+
+        parsed.args = ['/d', '/s', '/c', `"${shellCommand}"`];
+        parsed.command = process.env.comspec || 'cmd.exe';
+        parsed.options.windowsVerbatimArguments = true; // Tell node's spawn that the arguments are already escaped
+    }
+
+    return parsed;
+}
+
+function parse(command, args, options) {
+    // Normalize arguments, similar to nodejs
+    if (args && !Array.isArray(args)) {
+        options = args;
+        args = null;
+    }
+
+    args = args ? args.slice(0) : []; // Clone array to avoid changing the original
+    options = Object.assign({}, options); // Clone object to avoid changing the original
+
+    // Build our parsed object
+    const parsed = {
+        command,
+        args,
+        options,
+        file: undefined,
+        original: {
+            command,
+            args,
+        },
+    };
+
+    // Delegate further parsing to shell or non-shell
+    return options.shell ? parsed : parseNonShell(parsed);
+}
+
+module.exports = parse;
+
+
+/***/ }),
+
+/***/ 1445:
+/***/ ((module) => {
+
+"use strict";
+
+
+// See http://www.robvanderwoude.com/escapechars.php
+const metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g;
+
+function escapeCommand(arg) {
+    // Escape meta chars
+    arg = arg.replace(metaCharsRegExp, '^$1');
+
+    return arg;
+}
+
+function escapeArgument(arg, doubleEscapeMetaChars) {
+    // Convert to string
+    arg = `${arg}`;
+
+    // Algorithm below is based on https://qntm.org/cmd
+
+    // Sequence of backslashes followed by a double quote:
+    // double up all the backslashes and escape the double quote
+    arg = arg.replace(/(\\*)"/g, '$1$1\\"');
+
+    // Sequence of backslashes followed by the end of the string
+    // (which will become a double quote later):
+    // double up all the backslashes
+    arg = arg.replace(/(\\*)$/, '$1$1');
+
+    // All other backslashes occur literally
+
+    // Quote the whole thing:
+    arg = `"${arg}"`;
+
+    // Escape meta chars
+    arg = arg.replace(metaCharsRegExp, '^$1');
+
+    // Double escape meta chars if necessary
+    if (doubleEscapeMetaChars) {
+        arg = arg.replace(metaCharsRegExp, '^$1');
+    }
+
+    return arg;
+}
+
+module.exports.command = escapeCommand;
+module.exports.argument = escapeArgument;
+
+
+/***/ }),
+
+/***/ 9574:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const fs = __nccwpck_require__(7147);
+const shebangCommand = __nccwpck_require__(5382);
+
+function readShebang(command) {
+    // Read the first 150 bytes from the file
+    const size = 150;
+    const buffer = Buffer.alloc(size);
+
+    let fd;
+
+    try {
+        fd = fs.openSync(command, 'r');
+        fs.readSync(fd, buffer, 0, size, 0);
+        fs.closeSync(fd);
+    } catch (e) { /* Empty */ }
+
+    // Attempt to extract shebang (null is returned if not a shebang)
+    return shebangCommand(buffer.toString());
+}
+
+module.exports = readShebang;
+
+
+/***/ }),
+
+/***/ 6841:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const path = __nccwpck_require__(1017);
+const which = __nccwpck_require__(6189);
+const getPathKey = __nccwpck_require__(851);
+
+function resolveCommandAttempt(parsed, withoutPathExt) {
+    const env = parsed.options.env || process.env;
+    const cwd = process.cwd();
+    const hasCustomCwd = parsed.options.cwd != null;
+    // Worker threads do not have process.chdir()
+    const shouldSwitchCwd = hasCustomCwd && process.chdir !== undefined && !process.chdir.disabled;
+
+    // If a custom `cwd` was specified, we need to change the process cwd
+    // because `which` will do stat calls but does not support a custom cwd
+    if (shouldSwitchCwd) {
+        try {
+            process.chdir(parsed.options.cwd);
+        } catch (err) {
+            /* Empty */
+        }
+    }
+
+    let resolved;
+
+    try {
+        resolved = which.sync(parsed.command, {
+            path: env[getPathKey({ env })],
+            pathExt: withoutPathExt ? path.delimiter : undefined,
+        });
+    } catch (e) {
+        /* Empty */
+    } finally {
+        if (shouldSwitchCwd) {
+            process.chdir(cwd);
+        }
+    }
+
+    // If we successfully resolved, ensure that an absolute path is returned
+    // Note that when a custom `cwd` was used, we need to resolve to an absolute path based on it
+    if (resolved) {
+        resolved = path.resolve(hasCustomCwd ? parsed.options.cwd : '', resolved);
+    }
+
+    return resolved;
+}
+
+function resolveCommand(parsed) {
+    return resolveCommandAttempt(parsed) || resolveCommandAttempt(parsed, true);
+}
+
+module.exports = resolveCommand;
 
 
 /***/ }),
@@ -44585,2121 +44767,6 @@ module.exports = function(dst, src) {
 
   return dst;
 };
-
-
-/***/ }),
-
-/***/ 7504:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6820)
-const path = __nccwpck_require__(1017)
-const mkdirsSync = (__nccwpck_require__(9754).mkdirsSync)
-const utimesMillisSync = (__nccwpck_require__(1526).utimesMillisSync)
-const stat = __nccwpck_require__(4942)
-
-function copySync (src, dest, opts) {
-  if (typeof opts === 'function') {
-    opts = { filter: opts }
-  }
-
-  opts = opts || {}
-  opts.clobber = 'clobber' in opts ? !!opts.clobber : true // default to true for now
-  opts.overwrite = 'overwrite' in opts ? !!opts.overwrite : opts.clobber // overwrite falls back to clobber
-
-  // Warn about using preserveTimestamps on 32-bit node
-  if (opts.preserveTimestamps && process.arch === 'ia32') {
-    process.emitWarning(
-      'Using the preserveTimestamps option in 32-bit node is not recommended;\n\n' +
-      '\tsee https://github.com/jprichardson/node-fs-extra/issues/269',
-      'Warning', 'fs-extra-WARN0002'
-    )
-  }
-
-  const { srcStat, destStat } = stat.checkPathsSync(src, dest, 'copy', opts)
-  stat.checkParentPathsSync(src, srcStat, dest, 'copy')
-  if (opts.filter && !opts.filter(src, dest)) return
-  const destParent = path.dirname(dest)
-  if (!fs.existsSync(destParent)) mkdirsSync(destParent)
-  return getStats(destStat, src, dest, opts)
-}
-
-function getStats (destStat, src, dest, opts) {
-  const statSync = opts.dereference ? fs.statSync : fs.lstatSync
-  const srcStat = statSync(src)
-
-  if (srcStat.isDirectory()) return onDir(srcStat, destStat, src, dest, opts)
-  else if (srcStat.isFile() ||
-           srcStat.isCharacterDevice() ||
-           srcStat.isBlockDevice()) return onFile(srcStat, destStat, src, dest, opts)
-  else if (srcStat.isSymbolicLink()) return onLink(destStat, src, dest, opts)
-  else if (srcStat.isSocket()) throw new Error(`Cannot copy a socket file: ${src}`)
-  else if (srcStat.isFIFO()) throw new Error(`Cannot copy a FIFO pipe: ${src}`)
-  throw new Error(`Unknown file: ${src}`)
-}
-
-function onFile (srcStat, destStat, src, dest, opts) {
-  if (!destStat) return copyFile(srcStat, src, dest, opts)
-  return mayCopyFile(srcStat, src, dest, opts)
-}
-
-function mayCopyFile (srcStat, src, dest, opts) {
-  if (opts.overwrite) {
-    fs.unlinkSync(dest)
-    return copyFile(srcStat, src, dest, opts)
-  } else if (opts.errorOnExist) {
-    throw new Error(`'${dest}' already exists`)
-  }
-}
-
-function copyFile (srcStat, src, dest, opts) {
-  fs.copyFileSync(src, dest)
-  if (opts.preserveTimestamps) handleTimestamps(srcStat.mode, src, dest)
-  return setDestMode(dest, srcStat.mode)
-}
-
-function handleTimestamps (srcMode, src, dest) {
-  // Make sure the file is writable before setting the timestamp
-  // otherwise open fails with EPERM when invoked with 'r+'
-  // (through utimes call)
-  if (fileIsNotWritable(srcMode)) makeFileWritable(dest, srcMode)
-  return setDestTimestamps(src, dest)
-}
-
-function fileIsNotWritable (srcMode) {
-  return (srcMode & 0o200) === 0
-}
-
-function makeFileWritable (dest, srcMode) {
-  return setDestMode(dest, srcMode | 0o200)
-}
-
-function setDestMode (dest, srcMode) {
-  return fs.chmodSync(dest, srcMode)
-}
-
-function setDestTimestamps (src, dest) {
-  // The initial srcStat.atime cannot be trusted
-  // because it is modified by the read(2) system call
-  // (See https://nodejs.org/api/fs.html#fs_stat_time_values)
-  const updatedSrcStat = fs.statSync(src)
-  return utimesMillisSync(dest, updatedSrcStat.atime, updatedSrcStat.mtime)
-}
-
-function onDir (srcStat, destStat, src, dest, opts) {
-  if (!destStat) return mkDirAndCopy(srcStat.mode, src, dest, opts)
-  return copyDir(src, dest, opts)
-}
-
-function mkDirAndCopy (srcMode, src, dest, opts) {
-  fs.mkdirSync(dest)
-  copyDir(src, dest, opts)
-  return setDestMode(dest, srcMode)
-}
-
-function copyDir (src, dest, opts) {
-  fs.readdirSync(src).forEach(item => copyDirItem(item, src, dest, opts))
-}
-
-function copyDirItem (item, src, dest, opts) {
-  const srcItem = path.join(src, item)
-  const destItem = path.join(dest, item)
-  if (opts.filter && !opts.filter(srcItem, destItem)) return
-  const { destStat } = stat.checkPathsSync(srcItem, destItem, 'copy', opts)
-  return getStats(destStat, srcItem, destItem, opts)
-}
-
-function onLink (destStat, src, dest, opts) {
-  let resolvedSrc = fs.readlinkSync(src)
-  if (opts.dereference) {
-    resolvedSrc = path.resolve(process.cwd(), resolvedSrc)
-  }
-
-  if (!destStat) {
-    return fs.symlinkSync(resolvedSrc, dest)
-  } else {
-    let resolvedDest
-    try {
-      resolvedDest = fs.readlinkSync(dest)
-    } catch (err) {
-      // dest exists and is a regular file or directory,
-      // Windows may throw UNKNOWN error. If dest already exists,
-      // fs throws error anyway, so no need to guard against it here.
-      if (err.code === 'EINVAL' || err.code === 'UNKNOWN') return fs.symlinkSync(resolvedSrc, dest)
-      throw err
-    }
-    if (opts.dereference) {
-      resolvedDest = path.resolve(process.cwd(), resolvedDest)
-    }
-    if (stat.isSrcSubdir(resolvedSrc, resolvedDest)) {
-      throw new Error(`Cannot copy '${resolvedSrc}' to a subdirectory of itself, '${resolvedDest}'.`)
-    }
-
-    // prevent copy if src is a subdir of dest since unlinking
-    // dest in this case would result in removing src contents
-    // and therefore a broken symlink would be created.
-    if (stat.isSrcSubdir(resolvedDest, resolvedSrc)) {
-      throw new Error(`Cannot overwrite '${resolvedDest}' with '${resolvedSrc}'.`)
-    }
-    return copyLink(resolvedSrc, dest)
-  }
-}
-
-function copyLink (resolvedSrc, dest) {
-  fs.unlinkSync(dest)
-  return fs.symlinkSync(resolvedSrc, dest)
-}
-
-module.exports = copySync
-
-
-/***/ }),
-
-/***/ 5469:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6820)
-const path = __nccwpck_require__(1017)
-const mkdirs = (__nccwpck_require__(9754).mkdirs)
-const pathExists = (__nccwpck_require__(9569).pathExists)
-const utimesMillis = (__nccwpck_require__(1526).utimesMillis)
-const stat = __nccwpck_require__(4942)
-
-function copy (src, dest, opts, cb) {
-  if (typeof opts === 'function' && !cb) {
-    cb = opts
-    opts = {}
-  } else if (typeof opts === 'function') {
-    opts = { filter: opts }
-  }
-
-  cb = cb || function () {}
-  opts = opts || {}
-
-  opts.clobber = 'clobber' in opts ? !!opts.clobber : true // default to true for now
-  opts.overwrite = 'overwrite' in opts ? !!opts.overwrite : opts.clobber // overwrite falls back to clobber
-
-  // Warn about using preserveTimestamps on 32-bit node
-  if (opts.preserveTimestamps && process.arch === 'ia32') {
-    process.emitWarning(
-      'Using the preserveTimestamps option in 32-bit node is not recommended;\n\n' +
-      '\tsee https://github.com/jprichardson/node-fs-extra/issues/269',
-      'Warning', 'fs-extra-WARN0001'
-    )
-  }
-
-  stat.checkPaths(src, dest, 'copy', opts, (err, stats) => {
-    if (err) return cb(err)
-    const { srcStat, destStat } = stats
-    stat.checkParentPaths(src, srcStat, dest, 'copy', err => {
-      if (err) return cb(err)
-      runFilter(src, dest, opts, (err, include) => {
-        if (err) return cb(err)
-        if (!include) return cb()
-
-        checkParentDir(destStat, src, dest, opts, cb)
-      })
-    })
-  })
-}
-
-function checkParentDir (destStat, src, dest, opts, cb) {
-  const destParent = path.dirname(dest)
-  pathExists(destParent, (err, dirExists) => {
-    if (err) return cb(err)
-    if (dirExists) return getStats(destStat, src, dest, opts, cb)
-    mkdirs(destParent, err => {
-      if (err) return cb(err)
-      return getStats(destStat, src, dest, opts, cb)
-    })
-  })
-}
-
-function runFilter (src, dest, opts, cb) {
-  if (!opts.filter) return cb(null, true)
-  Promise.resolve(opts.filter(src, dest))
-    .then(include => cb(null, include), error => cb(error))
-}
-
-function getStats (destStat, src, dest, opts, cb) {
-  const stat = opts.dereference ? fs.stat : fs.lstat
-  stat(src, (err, srcStat) => {
-    if (err) return cb(err)
-
-    if (srcStat.isDirectory()) return onDir(srcStat, destStat, src, dest, opts, cb)
-    else if (srcStat.isFile() ||
-             srcStat.isCharacterDevice() ||
-             srcStat.isBlockDevice()) return onFile(srcStat, destStat, src, dest, opts, cb)
-    else if (srcStat.isSymbolicLink()) return onLink(destStat, src, dest, opts, cb)
-    else if (srcStat.isSocket()) return cb(new Error(`Cannot copy a socket file: ${src}`))
-    else if (srcStat.isFIFO()) return cb(new Error(`Cannot copy a FIFO pipe: ${src}`))
-    return cb(new Error(`Unknown file: ${src}`))
-  })
-}
-
-function onFile (srcStat, destStat, src, dest, opts, cb) {
-  if (!destStat) return copyFile(srcStat, src, dest, opts, cb)
-  return mayCopyFile(srcStat, src, dest, opts, cb)
-}
-
-function mayCopyFile (srcStat, src, dest, opts, cb) {
-  if (opts.overwrite) {
-    fs.unlink(dest, err => {
-      if (err) return cb(err)
-      return copyFile(srcStat, src, dest, opts, cb)
-    })
-  } else if (opts.errorOnExist) {
-    return cb(new Error(`'${dest}' already exists`))
-  } else return cb()
-}
-
-function copyFile (srcStat, src, dest, opts, cb) {
-  fs.copyFile(src, dest, err => {
-    if (err) return cb(err)
-    if (opts.preserveTimestamps) return handleTimestampsAndMode(srcStat.mode, src, dest, cb)
-    return setDestMode(dest, srcStat.mode, cb)
-  })
-}
-
-function handleTimestampsAndMode (srcMode, src, dest, cb) {
-  // Make sure the file is writable before setting the timestamp
-  // otherwise open fails with EPERM when invoked with 'r+'
-  // (through utimes call)
-  if (fileIsNotWritable(srcMode)) {
-    return makeFileWritable(dest, srcMode, err => {
-      if (err) return cb(err)
-      return setDestTimestampsAndMode(srcMode, src, dest, cb)
-    })
-  }
-  return setDestTimestampsAndMode(srcMode, src, dest, cb)
-}
-
-function fileIsNotWritable (srcMode) {
-  return (srcMode & 0o200) === 0
-}
-
-function makeFileWritable (dest, srcMode, cb) {
-  return setDestMode(dest, srcMode | 0o200, cb)
-}
-
-function setDestTimestampsAndMode (srcMode, src, dest, cb) {
-  setDestTimestamps(src, dest, err => {
-    if (err) return cb(err)
-    return setDestMode(dest, srcMode, cb)
-  })
-}
-
-function setDestMode (dest, srcMode, cb) {
-  return fs.chmod(dest, srcMode, cb)
-}
-
-function setDestTimestamps (src, dest, cb) {
-  // The initial srcStat.atime cannot be trusted
-  // because it is modified by the read(2) system call
-  // (See https://nodejs.org/api/fs.html#fs_stat_time_values)
-  fs.stat(src, (err, updatedSrcStat) => {
-    if (err) return cb(err)
-    return utimesMillis(dest, updatedSrcStat.atime, updatedSrcStat.mtime, cb)
-  })
-}
-
-function onDir (srcStat, destStat, src, dest, opts, cb) {
-  if (!destStat) return mkDirAndCopy(srcStat.mode, src, dest, opts, cb)
-  return copyDir(src, dest, opts, cb)
-}
-
-function mkDirAndCopy (srcMode, src, dest, opts, cb) {
-  fs.mkdir(dest, err => {
-    if (err) return cb(err)
-    copyDir(src, dest, opts, err => {
-      if (err) return cb(err)
-      return setDestMode(dest, srcMode, cb)
-    })
-  })
-}
-
-function copyDir (src, dest, opts, cb) {
-  fs.readdir(src, (err, items) => {
-    if (err) return cb(err)
-    return copyDirItems(items, src, dest, opts, cb)
-  })
-}
-
-function copyDirItems (items, src, dest, opts, cb) {
-  const item = items.pop()
-  if (!item) return cb()
-  return copyDirItem(items, item, src, dest, opts, cb)
-}
-
-function copyDirItem (items, item, src, dest, opts, cb) {
-  const srcItem = path.join(src, item)
-  const destItem = path.join(dest, item)
-  runFilter(srcItem, destItem, opts, (err, include) => {
-    if (err) return cb(err)
-    if (!include) return copyDirItems(items, src, dest, opts, cb)
-
-    stat.checkPaths(srcItem, destItem, 'copy', opts, (err, stats) => {
-      if (err) return cb(err)
-      const { destStat } = stats
-      getStats(destStat, srcItem, destItem, opts, err => {
-        if (err) return cb(err)
-        return copyDirItems(items, src, dest, opts, cb)
-      })
-    })
-  })
-}
-
-function onLink (destStat, src, dest, opts, cb) {
-  fs.readlink(src, (err, resolvedSrc) => {
-    if (err) return cb(err)
-    if (opts.dereference) {
-      resolvedSrc = path.resolve(process.cwd(), resolvedSrc)
-    }
-
-    if (!destStat) {
-      return fs.symlink(resolvedSrc, dest, cb)
-    } else {
-      fs.readlink(dest, (err, resolvedDest) => {
-        if (err) {
-          // dest exists and is a regular file or directory,
-          // Windows may throw UNKNOWN error. If dest already exists,
-          // fs throws error anyway, so no need to guard against it here.
-          if (err.code === 'EINVAL' || err.code === 'UNKNOWN') return fs.symlink(resolvedSrc, dest, cb)
-          return cb(err)
-        }
-        if (opts.dereference) {
-          resolvedDest = path.resolve(process.cwd(), resolvedDest)
-        }
-        if (stat.isSrcSubdir(resolvedSrc, resolvedDest)) {
-          return cb(new Error(`Cannot copy '${resolvedSrc}' to a subdirectory of itself, '${resolvedDest}'.`))
-        }
-
-        // do not copy if src is a subdir of dest since unlinking
-        // dest in this case would result in removing src contents
-        // and therefore a broken symlink would be created.
-        if (stat.isSrcSubdir(resolvedDest, resolvedSrc)) {
-          return cb(new Error(`Cannot overwrite '${resolvedDest}' with '${resolvedSrc}'.`))
-        }
-        return copyLink(resolvedSrc, dest, cb)
-      })
-    }
-  })
-}
-
-function copyLink (resolvedSrc, dest, cb) {
-  fs.unlink(dest, err => {
-    if (err) return cb(err)
-    return fs.symlink(resolvedSrc, dest, cb)
-  })
-}
-
-module.exports = copy
-
-
-/***/ }),
-
-/***/ 9010:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromCallback)
-module.exports = {
-  copy: u(__nccwpck_require__(5469)),
-  copySync: __nccwpck_require__(7504)
-}
-
-
-/***/ }),
-
-/***/ 3928:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromPromise)
-const fs = __nccwpck_require__(6883)
-const path = __nccwpck_require__(1017)
-const mkdir = __nccwpck_require__(9754)
-const remove = __nccwpck_require__(9365)
-
-const emptyDir = u(async function emptyDir (dir) {
-  let items
-  try {
-    items = await fs.readdir(dir)
-  } catch {
-    return mkdir.mkdirs(dir)
-  }
-
-  return Promise.all(items.map(item => remove.remove(path.join(dir, item))))
-})
-
-function emptyDirSync (dir) {
-  let items
-  try {
-    items = fs.readdirSync(dir)
-  } catch {
-    return mkdir.mkdirsSync(dir)
-  }
-
-  items.forEach(item => {
-    item = path.join(dir, item)
-    remove.removeSync(item)
-  })
-}
-
-module.exports = {
-  emptyDirSync,
-  emptydirSync: emptyDirSync,
-  emptyDir,
-  emptydir: emptyDir
-}
-
-
-/***/ }),
-
-/***/ 7253:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromCallback)
-const path = __nccwpck_require__(1017)
-const fs = __nccwpck_require__(6820)
-const mkdir = __nccwpck_require__(9754)
-
-function createFile (file, callback) {
-  function makeFile () {
-    fs.writeFile(file, '', err => {
-      if (err) return callback(err)
-      callback()
-    })
-  }
-
-  fs.stat(file, (err, stats) => { // eslint-disable-line handle-callback-err
-    if (!err && stats.isFile()) return callback()
-    const dir = path.dirname(file)
-    fs.stat(dir, (err, stats) => {
-      if (err) {
-        // if the directory doesn't exist, make it
-        if (err.code === 'ENOENT') {
-          return mkdir.mkdirs(dir, err => {
-            if (err) return callback(err)
-            makeFile()
-          })
-        }
-        return callback(err)
-      }
-
-      if (stats.isDirectory()) makeFile()
-      else {
-        // parent is not a directory
-        // This is just to cause an internal ENOTDIR error to be thrown
-        fs.readdir(dir, err => {
-          if (err) return callback(err)
-        })
-      }
-    })
-  })
-}
-
-function createFileSync (file) {
-  let stats
-  try {
-    stats = fs.statSync(file)
-  } catch {}
-  if (stats && stats.isFile()) return
-
-  const dir = path.dirname(file)
-  try {
-    if (!fs.statSync(dir).isDirectory()) {
-      // parent is not a directory
-      // This is just to cause an internal ENOTDIR error to be thrown
-      fs.readdirSync(dir)
-    }
-  } catch (err) {
-    // If the stat call above failed because the directory doesn't exist, create it
-    if (err && err.code === 'ENOENT') mkdir.mkdirsSync(dir)
-    else throw err
-  }
-
-  fs.writeFileSync(file, '')
-}
-
-module.exports = {
-  createFile: u(createFile),
-  createFileSync
-}
-
-
-/***/ }),
-
-/***/ 8360:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const { createFile, createFileSync } = __nccwpck_require__(7253)
-const { createLink, createLinkSync } = __nccwpck_require__(3306)
-const { createSymlink, createSymlinkSync } = __nccwpck_require__(7050)
-
-module.exports = {
-  // file
-  createFile,
-  createFileSync,
-  ensureFile: createFile,
-  ensureFileSync: createFileSync,
-  // link
-  createLink,
-  createLinkSync,
-  ensureLink: createLink,
-  ensureLinkSync: createLinkSync,
-  // symlink
-  createSymlink,
-  createSymlinkSync,
-  ensureSymlink: createSymlink,
-  ensureSymlinkSync: createSymlinkSync
-}
-
-
-/***/ }),
-
-/***/ 3306:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromCallback)
-const path = __nccwpck_require__(1017)
-const fs = __nccwpck_require__(6820)
-const mkdir = __nccwpck_require__(9754)
-const pathExists = (__nccwpck_require__(9569).pathExists)
-const { areIdentical } = __nccwpck_require__(4942)
-
-function createLink (srcpath, dstpath, callback) {
-  function makeLink (srcpath, dstpath) {
-    fs.link(srcpath, dstpath, err => {
-      if (err) return callback(err)
-      callback(null)
-    })
-  }
-
-  fs.lstat(dstpath, (_, dstStat) => {
-    fs.lstat(srcpath, (err, srcStat) => {
-      if (err) {
-        err.message = err.message.replace('lstat', 'ensureLink')
-        return callback(err)
-      }
-      if (dstStat && areIdentical(srcStat, dstStat)) return callback(null)
-
-      const dir = path.dirname(dstpath)
-      pathExists(dir, (err, dirExists) => {
-        if (err) return callback(err)
-        if (dirExists) return makeLink(srcpath, dstpath)
-        mkdir.mkdirs(dir, err => {
-          if (err) return callback(err)
-          makeLink(srcpath, dstpath)
-        })
-      })
-    })
-  })
-}
-
-function createLinkSync (srcpath, dstpath) {
-  let dstStat
-  try {
-    dstStat = fs.lstatSync(dstpath)
-  } catch {}
-
-  try {
-    const srcStat = fs.lstatSync(srcpath)
-    if (dstStat && areIdentical(srcStat, dstStat)) return
-  } catch (err) {
-    err.message = err.message.replace('lstat', 'ensureLink')
-    throw err
-  }
-
-  const dir = path.dirname(dstpath)
-  const dirExists = fs.existsSync(dir)
-  if (dirExists) return fs.linkSync(srcpath, dstpath)
-  mkdir.mkdirsSync(dir)
-
-  return fs.linkSync(srcpath, dstpath)
-}
-
-module.exports = {
-  createLink: u(createLink),
-  createLinkSync
-}
-
-
-/***/ }),
-
-/***/ 6888:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const path = __nccwpck_require__(1017)
-const fs = __nccwpck_require__(6820)
-const pathExists = (__nccwpck_require__(9569).pathExists)
-
-/**
- * Function that returns two types of paths, one relative to symlink, and one
- * relative to the current working directory. Checks if path is absolute or
- * relative. If the path is relative, this function checks if the path is
- * relative to symlink or relative to current working directory. This is an
- * initiative to find a smarter `srcpath` to supply when building symlinks.
- * This allows you to determine which path to use out of one of three possible
- * types of source paths. The first is an absolute path. This is detected by
- * `path.isAbsolute()`. When an absolute path is provided, it is checked to
- * see if it exists. If it does it's used, if not an error is returned
- * (callback)/ thrown (sync). The other two options for `srcpath` are a
- * relative url. By default Node's `fs.symlink` works by creating a symlink
- * using `dstpath` and expects the `srcpath` to be relative to the newly
- * created symlink. If you provide a `srcpath` that does not exist on the file
- * system it results in a broken symlink. To minimize this, the function
- * checks to see if the 'relative to symlink' source file exists, and if it
- * does it will use it. If it does not, it checks if there's a file that
- * exists that is relative to the current working directory, if does its used.
- * This preserves the expectations of the original fs.symlink spec and adds
- * the ability to pass in `relative to current working direcotry` paths.
- */
-
-function symlinkPaths (srcpath, dstpath, callback) {
-  if (path.isAbsolute(srcpath)) {
-    return fs.lstat(srcpath, (err) => {
-      if (err) {
-        err.message = err.message.replace('lstat', 'ensureSymlink')
-        return callback(err)
-      }
-      return callback(null, {
-        toCwd: srcpath,
-        toDst: srcpath
-      })
-    })
-  } else {
-    const dstdir = path.dirname(dstpath)
-    const relativeToDst = path.join(dstdir, srcpath)
-    return pathExists(relativeToDst, (err, exists) => {
-      if (err) return callback(err)
-      if (exists) {
-        return callback(null, {
-          toCwd: relativeToDst,
-          toDst: srcpath
-        })
-      } else {
-        return fs.lstat(srcpath, (err) => {
-          if (err) {
-            err.message = err.message.replace('lstat', 'ensureSymlink')
-            return callback(err)
-          }
-          return callback(null, {
-            toCwd: srcpath,
-            toDst: path.relative(dstdir, srcpath)
-          })
-        })
-      }
-    })
-  }
-}
-
-function symlinkPathsSync (srcpath, dstpath) {
-  let exists
-  if (path.isAbsolute(srcpath)) {
-    exists = fs.existsSync(srcpath)
-    if (!exists) throw new Error('absolute srcpath does not exist')
-    return {
-      toCwd: srcpath,
-      toDst: srcpath
-    }
-  } else {
-    const dstdir = path.dirname(dstpath)
-    const relativeToDst = path.join(dstdir, srcpath)
-    exists = fs.existsSync(relativeToDst)
-    if (exists) {
-      return {
-        toCwd: relativeToDst,
-        toDst: srcpath
-      }
-    } else {
-      exists = fs.existsSync(srcpath)
-      if (!exists) throw new Error('relative srcpath does not exist')
-      return {
-        toCwd: srcpath,
-        toDst: path.relative(dstdir, srcpath)
-      }
-    }
-  }
-}
-
-module.exports = {
-  symlinkPaths,
-  symlinkPathsSync
-}
-
-
-/***/ }),
-
-/***/ 9542:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6820)
-
-function symlinkType (srcpath, type, callback) {
-  callback = (typeof type === 'function') ? type : callback
-  type = (typeof type === 'function') ? false : type
-  if (type) return callback(null, type)
-  fs.lstat(srcpath, (err, stats) => {
-    if (err) return callback(null, 'file')
-    type = (stats && stats.isDirectory()) ? 'dir' : 'file'
-    callback(null, type)
-  })
-}
-
-function symlinkTypeSync (srcpath, type) {
-  let stats
-
-  if (type) return type
-  try {
-    stats = fs.lstatSync(srcpath)
-  } catch {
-    return 'file'
-  }
-  return (stats && stats.isDirectory()) ? 'dir' : 'file'
-}
-
-module.exports = {
-  symlinkType,
-  symlinkTypeSync
-}
-
-
-/***/ }),
-
-/***/ 7050:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromCallback)
-const path = __nccwpck_require__(1017)
-const fs = __nccwpck_require__(6883)
-const _mkdirs = __nccwpck_require__(9754)
-const mkdirs = _mkdirs.mkdirs
-const mkdirsSync = _mkdirs.mkdirsSync
-
-const _symlinkPaths = __nccwpck_require__(6888)
-const symlinkPaths = _symlinkPaths.symlinkPaths
-const symlinkPathsSync = _symlinkPaths.symlinkPathsSync
-
-const _symlinkType = __nccwpck_require__(9542)
-const symlinkType = _symlinkType.symlinkType
-const symlinkTypeSync = _symlinkType.symlinkTypeSync
-
-const pathExists = (__nccwpck_require__(9569).pathExists)
-
-const { areIdentical } = __nccwpck_require__(4942)
-
-function createSymlink (srcpath, dstpath, type, callback) {
-  callback = (typeof type === 'function') ? type : callback
-  type = (typeof type === 'function') ? false : type
-
-  fs.lstat(dstpath, (err, stats) => {
-    if (!err && stats.isSymbolicLink()) {
-      Promise.all([
-        fs.stat(srcpath),
-        fs.stat(dstpath)
-      ]).then(([srcStat, dstStat]) => {
-        if (areIdentical(srcStat, dstStat)) return callback(null)
-        _createSymlink(srcpath, dstpath, type, callback)
-      })
-    } else _createSymlink(srcpath, dstpath, type, callback)
-  })
-}
-
-function _createSymlink (srcpath, dstpath, type, callback) {
-  symlinkPaths(srcpath, dstpath, (err, relative) => {
-    if (err) return callback(err)
-    srcpath = relative.toDst
-    symlinkType(relative.toCwd, type, (err, type) => {
-      if (err) return callback(err)
-      const dir = path.dirname(dstpath)
-      pathExists(dir, (err, dirExists) => {
-        if (err) return callback(err)
-        if (dirExists) return fs.symlink(srcpath, dstpath, type, callback)
-        mkdirs(dir, err => {
-          if (err) return callback(err)
-          fs.symlink(srcpath, dstpath, type, callback)
-        })
-      })
-    })
-  })
-}
-
-function createSymlinkSync (srcpath, dstpath, type) {
-  let stats
-  try {
-    stats = fs.lstatSync(dstpath)
-  } catch {}
-  if (stats && stats.isSymbolicLink()) {
-    const srcStat = fs.statSync(srcpath)
-    const dstStat = fs.statSync(dstpath)
-    if (areIdentical(srcStat, dstStat)) return
-  }
-
-  const relative = symlinkPathsSync(srcpath, dstpath)
-  srcpath = relative.toDst
-  type = symlinkTypeSync(relative.toCwd, type)
-  const dir = path.dirname(dstpath)
-  const exists = fs.existsSync(dir)
-  if (exists) return fs.symlinkSync(srcpath, dstpath, type)
-  mkdirsSync(dir)
-  return fs.symlinkSync(srcpath, dstpath, type)
-}
-
-module.exports = {
-  createSymlink: u(createSymlink),
-  createSymlinkSync
-}
-
-
-/***/ }),
-
-/***/ 6883:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-// This is adapted from https://github.com/normalize/mz
-// Copyright (c) 2014-2016 Jonathan Ong me@jongleberry.com and Contributors
-const u = (__nccwpck_require__(3946).fromCallback)
-const fs = __nccwpck_require__(6820)
-
-const api = [
-  'access',
-  'appendFile',
-  'chmod',
-  'chown',
-  'close',
-  'copyFile',
-  'fchmod',
-  'fchown',
-  'fdatasync',
-  'fstat',
-  'fsync',
-  'ftruncate',
-  'futimes',
-  'lchmod',
-  'lchown',
-  'link',
-  'lstat',
-  'mkdir',
-  'mkdtemp',
-  'open',
-  'opendir',
-  'readdir',
-  'readFile',
-  'readlink',
-  'realpath',
-  'rename',
-  'rm',
-  'rmdir',
-  'stat',
-  'symlink',
-  'truncate',
-  'unlink',
-  'utimes',
-  'writeFile'
-].filter(key => {
-  // Some commands are not available on some systems. Ex:
-  // fs.cp was added in Node.js v16.7.0
-  // fs.lchown is not available on at least some Linux
-  return typeof fs[key] === 'function'
-})
-
-// Export cloned fs:
-Object.assign(exports, fs)
-
-// Universalify async methods:
-api.forEach(method => {
-  exports[method] = u(fs[method])
-})
-
-// We differ from mz/fs in that we still ship the old, broken, fs.exists()
-// since we are a drop-in replacement for the native module
-exports.exists = function (filename, callback) {
-  if (typeof callback === 'function') {
-    return fs.exists(filename, callback)
-  }
-  return new Promise(resolve => {
-    return fs.exists(filename, resolve)
-  })
-}
-
-// fs.read(), fs.write(), fs.readv(), & fs.writev() need special treatment due to multiple callback args
-
-exports.read = function (fd, buffer, offset, length, position, callback) {
-  if (typeof callback === 'function') {
-    return fs.read(fd, buffer, offset, length, position, callback)
-  }
-  return new Promise((resolve, reject) => {
-    fs.read(fd, buffer, offset, length, position, (err, bytesRead, buffer) => {
-      if (err) return reject(err)
-      resolve({ bytesRead, buffer })
-    })
-  })
-}
-
-// Function signature can be
-// fs.write(fd, buffer[, offset[, length[, position]]], callback)
-// OR
-// fs.write(fd, string[, position[, encoding]], callback)
-// We need to handle both cases, so we use ...args
-exports.write = function (fd, buffer, ...args) {
-  if (typeof args[args.length - 1] === 'function') {
-    return fs.write(fd, buffer, ...args)
-  }
-
-  return new Promise((resolve, reject) => {
-    fs.write(fd, buffer, ...args, (err, bytesWritten, buffer) => {
-      if (err) return reject(err)
-      resolve({ bytesWritten, buffer })
-    })
-  })
-}
-
-// Function signature is
-// s.readv(fd, buffers[, position], callback)
-// We need to handle the optional arg, so we use ...args
-exports.readv = function (fd, buffers, ...args) {
-  if (typeof args[args.length - 1] === 'function') {
-    return fs.readv(fd, buffers, ...args)
-  }
-
-  return new Promise((resolve, reject) => {
-    fs.readv(fd, buffers, ...args, (err, bytesRead, buffers) => {
-      if (err) return reject(err)
-      resolve({ bytesRead, buffers })
-    })
-  })
-}
-
-// Function signature is
-// s.writev(fd, buffers[, position], callback)
-// We need to handle the optional arg, so we use ...args
-exports.writev = function (fd, buffers, ...args) {
-  if (typeof args[args.length - 1] === 'function') {
-    return fs.writev(fd, buffers, ...args)
-  }
-
-  return new Promise((resolve, reject) => {
-    fs.writev(fd, buffers, ...args, (err, bytesWritten, buffers) => {
-      if (err) return reject(err)
-      resolve({ bytesWritten, buffers })
-    })
-  })
-}
-
-// fs.realpath.native sometimes not available if fs is monkey-patched
-if (typeof fs.realpath.native === 'function') {
-  exports.realpath.native = u(fs.realpath.native)
-} else {
-  process.emitWarning(
-    'fs.realpath.native is not a function. Is fs being monkey-patched?',
-    'Warning', 'fs-extra-WARN0003'
-  )
-}
-
-
-/***/ }),
-
-/***/ 3443:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-module.exports = {
-  // Export promiseified graceful-fs:
-  ...__nccwpck_require__(6883),
-  // Export extra methods:
-  ...__nccwpck_require__(9010),
-  ...__nccwpck_require__(3928),
-  ...__nccwpck_require__(8360),
-  ...__nccwpck_require__(5822),
-  ...__nccwpck_require__(9754),
-  ...__nccwpck_require__(7960),
-  ...__nccwpck_require__(9568),
-  ...__nccwpck_require__(9569),
-  ...__nccwpck_require__(9365)
-}
-
-
-/***/ }),
-
-/***/ 5822:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromPromise)
-const jsonFile = __nccwpck_require__(7918)
-
-jsonFile.outputJson = u(__nccwpck_require__(4657))
-jsonFile.outputJsonSync = __nccwpck_require__(6246)
-// aliases
-jsonFile.outputJSON = jsonFile.outputJson
-jsonFile.outputJSONSync = jsonFile.outputJsonSync
-jsonFile.writeJSON = jsonFile.writeJson
-jsonFile.writeJSONSync = jsonFile.writeJsonSync
-jsonFile.readJSON = jsonFile.readJson
-jsonFile.readJSONSync = jsonFile.readJsonSync
-
-module.exports = jsonFile
-
-
-/***/ }),
-
-/***/ 7918:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const jsonFile = __nccwpck_require__(9470)
-
-module.exports = {
-  // jsonfile exports
-  readJson: jsonFile.readFile,
-  readJsonSync: jsonFile.readFileSync,
-  writeJson: jsonFile.writeFile,
-  writeJsonSync: jsonFile.writeFileSync
-}
-
-
-/***/ }),
-
-/***/ 6246:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const { stringify } = __nccwpck_require__(4938)
-const { outputFileSync } = __nccwpck_require__(9568)
-
-function outputJsonSync (file, data, options) {
-  const str = stringify(data, options)
-
-  outputFileSync(file, str, options)
-}
-
-module.exports = outputJsonSync
-
-
-/***/ }),
-
-/***/ 4657:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const { stringify } = __nccwpck_require__(4938)
-const { outputFile } = __nccwpck_require__(9568)
-
-async function outputJson (file, data, options = {}) {
-  const str = stringify(data, options)
-
-  await outputFile(file, str, options)
-}
-
-module.exports = outputJson
-
-
-/***/ }),
-
-/***/ 9754:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const u = (__nccwpck_require__(3946).fromPromise)
-const { makeDir: _makeDir, makeDirSync } = __nccwpck_require__(3161)
-const makeDir = u(_makeDir)
-
-module.exports = {
-  mkdirs: makeDir,
-  mkdirsSync: makeDirSync,
-  // alias
-  mkdirp: makeDir,
-  mkdirpSync: makeDirSync,
-  ensureDir: makeDir,
-  ensureDirSync: makeDirSync
-}
-
-
-/***/ }),
-
-/***/ 3161:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const fs = __nccwpck_require__(6883)
-const { checkPath } = __nccwpck_require__(5221)
-
-const getMode = options => {
-  const defaults = { mode: 0o777 }
-  if (typeof options === 'number') return options
-  return ({ ...defaults, ...options }).mode
-}
-
-module.exports.makeDir = async (dir, options) => {
-  checkPath(dir)
-
-  return fs.mkdir(dir, {
-    mode: getMode(options),
-    recursive: true
-  })
-}
-
-module.exports.makeDirSync = (dir, options) => {
-  checkPath(dir)
-
-  return fs.mkdirSync(dir, {
-    mode: getMode(options),
-    recursive: true
-  })
-}
-
-
-/***/ }),
-
-/***/ 5221:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-// Adapted from https://github.com/sindresorhus/make-dir
-// Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-const path = __nccwpck_require__(1017)
-
-// https://github.com/nodejs/node/issues/8987
-// https://github.com/libuv/libuv/pull/1088
-module.exports.checkPath = function checkPath (pth) {
-  if (process.platform === 'win32') {
-    const pathHasInvalidWinCharacters = /[<>:"|?*]/.test(pth.replace(path.parse(pth).root, ''))
-
-    if (pathHasInvalidWinCharacters) {
-      const error = new Error(`Path contains invalid characters: ${pth}`)
-      error.code = 'EINVAL'
-      throw error
-    }
-  }
-}
-
-
-/***/ }),
-
-/***/ 7960:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromCallback)
-module.exports = {
-  move: u(__nccwpck_require__(7848)),
-  moveSync: __nccwpck_require__(1328)
-}
-
-
-/***/ }),
-
-/***/ 1328:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6820)
-const path = __nccwpck_require__(1017)
-const copySync = (__nccwpck_require__(9010).copySync)
-const removeSync = (__nccwpck_require__(9365).removeSync)
-const mkdirpSync = (__nccwpck_require__(9754).mkdirpSync)
-const stat = __nccwpck_require__(4942)
-
-function moveSync (src, dest, opts) {
-  opts = opts || {}
-  const overwrite = opts.overwrite || opts.clobber || false
-
-  const { srcStat, isChangingCase = false } = stat.checkPathsSync(src, dest, 'move', opts)
-  stat.checkParentPathsSync(src, srcStat, dest, 'move')
-  if (!isParentRoot(dest)) mkdirpSync(path.dirname(dest))
-  return doRename(src, dest, overwrite, isChangingCase)
-}
-
-function isParentRoot (dest) {
-  const parent = path.dirname(dest)
-  const parsedPath = path.parse(parent)
-  return parsedPath.root === parent
-}
-
-function doRename (src, dest, overwrite, isChangingCase) {
-  if (isChangingCase) return rename(src, dest, overwrite)
-  if (overwrite) {
-    removeSync(dest)
-    return rename(src, dest, overwrite)
-  }
-  if (fs.existsSync(dest)) throw new Error('dest already exists.')
-  return rename(src, dest, overwrite)
-}
-
-function rename (src, dest, overwrite) {
-  try {
-    fs.renameSync(src, dest)
-  } catch (err) {
-    if (err.code !== 'EXDEV') throw err
-    return moveAcrossDevice(src, dest, overwrite)
-  }
-}
-
-function moveAcrossDevice (src, dest, overwrite) {
-  const opts = {
-    overwrite,
-    errorOnExist: true,
-    preserveTimestamps: true
-  }
-  copySync(src, dest, opts)
-  return removeSync(src)
-}
-
-module.exports = moveSync
-
-
-/***/ }),
-
-/***/ 7848:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6820)
-const path = __nccwpck_require__(1017)
-const copy = (__nccwpck_require__(9010).copy)
-const remove = (__nccwpck_require__(9365).remove)
-const mkdirp = (__nccwpck_require__(9754).mkdirp)
-const pathExists = (__nccwpck_require__(9569).pathExists)
-const stat = __nccwpck_require__(4942)
-
-function move (src, dest, opts, cb) {
-  if (typeof opts === 'function') {
-    cb = opts
-    opts = {}
-  }
-
-  opts = opts || {}
-
-  const overwrite = opts.overwrite || opts.clobber || false
-
-  stat.checkPaths(src, dest, 'move', opts, (err, stats) => {
-    if (err) return cb(err)
-    const { srcStat, isChangingCase = false } = stats
-    stat.checkParentPaths(src, srcStat, dest, 'move', err => {
-      if (err) return cb(err)
-      if (isParentRoot(dest)) return doRename(src, dest, overwrite, isChangingCase, cb)
-      mkdirp(path.dirname(dest), err => {
-        if (err) return cb(err)
-        return doRename(src, dest, overwrite, isChangingCase, cb)
-      })
-    })
-  })
-}
-
-function isParentRoot (dest) {
-  const parent = path.dirname(dest)
-  const parsedPath = path.parse(parent)
-  return parsedPath.root === parent
-}
-
-function doRename (src, dest, overwrite, isChangingCase, cb) {
-  if (isChangingCase) return rename(src, dest, overwrite, cb)
-  if (overwrite) {
-    return remove(dest, err => {
-      if (err) return cb(err)
-      return rename(src, dest, overwrite, cb)
-    })
-  }
-  pathExists(dest, (err, destExists) => {
-    if (err) return cb(err)
-    if (destExists) return cb(new Error('dest already exists.'))
-    return rename(src, dest, overwrite, cb)
-  })
-}
-
-function rename (src, dest, overwrite, cb) {
-  fs.rename(src, dest, err => {
-    if (!err) return cb()
-    if (err.code !== 'EXDEV') return cb(err)
-    return moveAcrossDevice(src, dest, overwrite, cb)
-  })
-}
-
-function moveAcrossDevice (src, dest, overwrite, cb) {
-  const opts = {
-    overwrite,
-    errorOnExist: true,
-    preserveTimestamps: true
-  }
-  copy(src, dest, opts, err => {
-    if (err) return cb(err)
-    return remove(src, cb)
-  })
-}
-
-module.exports = move
-
-
-/***/ }),
-
-/***/ 9568:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const u = (__nccwpck_require__(3946).fromCallback)
-const fs = __nccwpck_require__(6820)
-const path = __nccwpck_require__(1017)
-const mkdir = __nccwpck_require__(9754)
-const pathExists = (__nccwpck_require__(9569).pathExists)
-
-function outputFile (file, data, encoding, callback) {
-  if (typeof encoding === 'function') {
-    callback = encoding
-    encoding = 'utf8'
-  }
-
-  const dir = path.dirname(file)
-  pathExists(dir, (err, itDoes) => {
-    if (err) return callback(err)
-    if (itDoes) return fs.writeFile(file, data, encoding, callback)
-
-    mkdir.mkdirs(dir, err => {
-      if (err) return callback(err)
-
-      fs.writeFile(file, data, encoding, callback)
-    })
-  })
-}
-
-function outputFileSync (file, ...args) {
-  const dir = path.dirname(file)
-  if (fs.existsSync(dir)) {
-    return fs.writeFileSync(file, ...args)
-  }
-  mkdir.mkdirsSync(dir)
-  fs.writeFileSync(file, ...args)
-}
-
-module.exports = {
-  outputFile: u(outputFile),
-  outputFileSync
-}
-
-
-/***/ }),
-
-/***/ 9569:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const u = (__nccwpck_require__(3946).fromPromise)
-const fs = __nccwpck_require__(6883)
-
-function pathExists (path) {
-  return fs.access(path).then(() => true).catch(() => false)
-}
-
-module.exports = {
-  pathExists: u(pathExists),
-  pathExistsSync: fs.existsSync
-}
-
-
-/***/ }),
-
-/***/ 9365:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6820)
-const u = (__nccwpck_require__(3946).fromCallback)
-
-function remove (path, callback) {
-  fs.rm(path, { recursive: true, force: true }, callback)
-}
-
-function removeSync (path) {
-  fs.rmSync(path, { recursive: true, force: true })
-}
-
-module.exports = {
-  remove: u(remove),
-  removeSync
-}
-
-
-/***/ }),
-
-/***/ 4942:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6883)
-const path = __nccwpck_require__(1017)
-const util = __nccwpck_require__(3837)
-
-function getStats (src, dest, opts) {
-  const statFunc = opts.dereference
-    ? (file) => fs.stat(file, { bigint: true })
-    : (file) => fs.lstat(file, { bigint: true })
-  return Promise.all([
-    statFunc(src),
-    statFunc(dest).catch(err => {
-      if (err.code === 'ENOENT') return null
-      throw err
-    })
-  ]).then(([srcStat, destStat]) => ({ srcStat, destStat }))
-}
-
-function getStatsSync (src, dest, opts) {
-  let destStat
-  const statFunc = opts.dereference
-    ? (file) => fs.statSync(file, { bigint: true })
-    : (file) => fs.lstatSync(file, { bigint: true })
-  const srcStat = statFunc(src)
-  try {
-    destStat = statFunc(dest)
-  } catch (err) {
-    if (err.code === 'ENOENT') return { srcStat, destStat: null }
-    throw err
-  }
-  return { srcStat, destStat }
-}
-
-function checkPaths (src, dest, funcName, opts, cb) {
-  util.callbackify(getStats)(src, dest, opts, (err, stats) => {
-    if (err) return cb(err)
-    const { srcStat, destStat } = stats
-
-    if (destStat) {
-      if (areIdentical(srcStat, destStat)) {
-        const srcBaseName = path.basename(src)
-        const destBaseName = path.basename(dest)
-        if (funcName === 'move' &&
-          srcBaseName !== destBaseName &&
-          srcBaseName.toLowerCase() === destBaseName.toLowerCase()) {
-          return cb(null, { srcStat, destStat, isChangingCase: true })
-        }
-        return cb(new Error('Source and destination must not be the same.'))
-      }
-      if (srcStat.isDirectory() && !destStat.isDirectory()) {
-        return cb(new Error(`Cannot overwrite non-directory '${dest}' with directory '${src}'.`))
-      }
-      if (!srcStat.isDirectory() && destStat.isDirectory()) {
-        return cb(new Error(`Cannot overwrite directory '${dest}' with non-directory '${src}'.`))
-      }
-    }
-
-    if (srcStat.isDirectory() && isSrcSubdir(src, dest)) {
-      return cb(new Error(errMsg(src, dest, funcName)))
-    }
-    return cb(null, { srcStat, destStat })
-  })
-}
-
-function checkPathsSync (src, dest, funcName, opts) {
-  const { srcStat, destStat } = getStatsSync(src, dest, opts)
-
-  if (destStat) {
-    if (areIdentical(srcStat, destStat)) {
-      const srcBaseName = path.basename(src)
-      const destBaseName = path.basename(dest)
-      if (funcName === 'move' &&
-        srcBaseName !== destBaseName &&
-        srcBaseName.toLowerCase() === destBaseName.toLowerCase()) {
-        return { srcStat, destStat, isChangingCase: true }
-      }
-      throw new Error('Source and destination must not be the same.')
-    }
-    if (srcStat.isDirectory() && !destStat.isDirectory()) {
-      throw new Error(`Cannot overwrite non-directory '${dest}' with directory '${src}'.`)
-    }
-    if (!srcStat.isDirectory() && destStat.isDirectory()) {
-      throw new Error(`Cannot overwrite directory '${dest}' with non-directory '${src}'.`)
-    }
-  }
-
-  if (srcStat.isDirectory() && isSrcSubdir(src, dest)) {
-    throw new Error(errMsg(src, dest, funcName))
-  }
-  return { srcStat, destStat }
-}
-
-// recursively check if dest parent is a subdirectory of src.
-// It works for all file types including symlinks since it
-// checks the src and dest inodes. It starts from the deepest
-// parent and stops once it reaches the src parent or the root path.
-function checkParentPaths (src, srcStat, dest, funcName, cb) {
-  const srcParent = path.resolve(path.dirname(src))
-  const destParent = path.resolve(path.dirname(dest))
-  if (destParent === srcParent || destParent === path.parse(destParent).root) return cb()
-  fs.stat(destParent, { bigint: true }, (err, destStat) => {
-    if (err) {
-      if (err.code === 'ENOENT') return cb()
-      return cb(err)
-    }
-    if (areIdentical(srcStat, destStat)) {
-      return cb(new Error(errMsg(src, dest, funcName)))
-    }
-    return checkParentPaths(src, srcStat, destParent, funcName, cb)
-  })
-}
-
-function checkParentPathsSync (src, srcStat, dest, funcName) {
-  const srcParent = path.resolve(path.dirname(src))
-  const destParent = path.resolve(path.dirname(dest))
-  if (destParent === srcParent || destParent === path.parse(destParent).root) return
-  let destStat
-  try {
-    destStat = fs.statSync(destParent, { bigint: true })
-  } catch (err) {
-    if (err.code === 'ENOENT') return
-    throw err
-  }
-  if (areIdentical(srcStat, destStat)) {
-    throw new Error(errMsg(src, dest, funcName))
-  }
-  return checkParentPathsSync(src, srcStat, destParent, funcName)
-}
-
-function areIdentical (srcStat, destStat) {
-  return destStat.ino && destStat.dev && destStat.ino === srcStat.ino && destStat.dev === srcStat.dev
-}
-
-// return true if dest is a subdir of src, otherwise false.
-// It only checks the path strings.
-function isSrcSubdir (src, dest) {
-  const srcArr = path.resolve(src).split(path.sep).filter(i => i)
-  const destArr = path.resolve(dest).split(path.sep).filter(i => i)
-  return srcArr.reduce((acc, cur, i) => acc && destArr[i] === cur, true)
-}
-
-function errMsg (src, dest, funcName) {
-  return `Cannot ${funcName} '${src}' to a subdirectory of itself, '${dest}'.`
-}
-
-module.exports = {
-  checkPaths,
-  checkPathsSync,
-  checkParentPaths,
-  checkParentPathsSync,
-  isSrcSubdir,
-  areIdentical
-}
-
-
-/***/ }),
-
-/***/ 1526:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const fs = __nccwpck_require__(6820)
-
-function utimesMillis (path, atime, mtime, callback) {
-  // if (!HAS_MILLIS_RES) return fs.utimes(path, atime, mtime, callback)
-  fs.open(path, 'r+', (err, fd) => {
-    if (err) return callback(err)
-    fs.futimes(fd, atime, mtime, futimesErr => {
-      fs.close(fd, closeErr => {
-        if (callback) callback(futimesErr || closeErr)
-      })
-    })
-  })
-}
-
-function utimesMillisSync (path, atime, mtime) {
-  const fd = fs.openSync(path, 'r+')
-  fs.futimesSync(fd, atime, mtime)
-  return fs.closeSync(fd)
-}
-
-module.exports = {
-  utimesMillis,
-  utimesMillisSync
-}
-
-
-/***/ }),
-
-/***/ 1354:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-const MiniPass = __nccwpck_require__(6424)
-const EE = (__nccwpck_require__(2361).EventEmitter)
-const fs = __nccwpck_require__(7147)
-
-let writev = fs.writev
-/* istanbul ignore next */
-if (!writev) {
-  // This entire block can be removed if support for earlier than Node.js
-  // 12.9.0 is not needed.
-  const binding = process.binding('fs')
-  const FSReqWrap = binding.FSReqWrap || binding.FSReqCallback
-
-  writev = (fd, iovec, pos, cb) => {
-    const done = (er, bw) => cb(er, bw, iovec)
-    const req = new FSReqWrap()
-    req.oncomplete = done
-    binding.writeBuffers(fd, iovec, pos, req)
-  }
-}
-
-const _autoClose = Symbol('_autoClose')
-const _close = Symbol('_close')
-const _ended = Symbol('_ended')
-const _fd = Symbol('_fd')
-const _finished = Symbol('_finished')
-const _flags = Symbol('_flags')
-const _flush = Symbol('_flush')
-const _handleChunk = Symbol('_handleChunk')
-const _makeBuf = Symbol('_makeBuf')
-const _mode = Symbol('_mode')
-const _needDrain = Symbol('_needDrain')
-const _onerror = Symbol('_onerror')
-const _onopen = Symbol('_onopen')
-const _onread = Symbol('_onread')
-const _onwrite = Symbol('_onwrite')
-const _open = Symbol('_open')
-const _path = Symbol('_path')
-const _pos = Symbol('_pos')
-const _queue = Symbol('_queue')
-const _read = Symbol('_read')
-const _readSize = Symbol('_readSize')
-const _reading = Symbol('_reading')
-const _remain = Symbol('_remain')
-const _size = Symbol('_size')
-const _write = Symbol('_write')
-const _writing = Symbol('_writing')
-const _defaultFlag = Symbol('_defaultFlag')
-const _errored = Symbol('_errored')
-
-class ReadStream extends MiniPass {
-  constructor (path, opt) {
-    opt = opt || {}
-    super(opt)
-
-    this.readable = true
-    this.writable = false
-
-    if (typeof path !== 'string')
-      throw new TypeError('path must be a string')
-
-    this[_errored] = false
-    this[_fd] = typeof opt.fd === 'number' ? opt.fd : null
-    this[_path] = path
-    this[_readSize] = opt.readSize || 16*1024*1024
-    this[_reading] = false
-    this[_size] = typeof opt.size === 'number' ? opt.size : Infinity
-    this[_remain] = this[_size]
-    this[_autoClose] = typeof opt.autoClose === 'boolean' ?
-      opt.autoClose : true
-
-    if (typeof this[_fd] === 'number')
-      this[_read]()
-    else
-      this[_open]()
-  }
-
-  get fd () { return this[_fd] }
-  get path () { return this[_path] }
-
-  write () {
-    throw new TypeError('this is a readable stream')
-  }
-
-  end () {
-    throw new TypeError('this is a readable stream')
-  }
-
-  [_open] () {
-    fs.open(this[_path], 'r', (er, fd) => this[_onopen](er, fd))
-  }
-
-  [_onopen] (er, fd) {
-    if (er)
-      this[_onerror](er)
-    else {
-      this[_fd] = fd
-      this.emit('open', fd)
-      this[_read]()
-    }
-  }
-
-  [_makeBuf] () {
-    return Buffer.allocUnsafe(Math.min(this[_readSize], this[_remain]))
-  }
-
-  [_read] () {
-    if (!this[_reading]) {
-      this[_reading] = true
-      const buf = this[_makeBuf]()
-      /* istanbul ignore if */
-      if (buf.length === 0)
-        return process.nextTick(() => this[_onread](null, 0, buf))
-      fs.read(this[_fd], buf, 0, buf.length, null, (er, br, buf) =>
-        this[_onread](er, br, buf))
-    }
-  }
-
-  [_onread] (er, br, buf) {
-    this[_reading] = false
-    if (er)
-      this[_onerror](er)
-    else if (this[_handleChunk](br, buf))
-      this[_read]()
-  }
-
-  [_close] () {
-    if (this[_autoClose] && typeof this[_fd] === 'number') {
-      const fd = this[_fd]
-      this[_fd] = null
-      fs.close(fd, er => er ? this.emit('error', er) : this.emit('close'))
-    }
-  }
-
-  [_onerror] (er) {
-    this[_reading] = true
-    this[_close]()
-    this.emit('error', er)
-  }
-
-  [_handleChunk] (br, buf) {
-    let ret = false
-    // no effect if infinite
-    this[_remain] -= br
-    if (br > 0)
-      ret = super.write(br < buf.length ? buf.slice(0, br) : buf)
-
-    if (br === 0 || this[_remain] <= 0) {
-      ret = false
-      this[_close]()
-      super.end()
-    }
-
-    return ret
-  }
-
-  emit (ev, data) {
-    switch (ev) {
-      case 'prefinish':
-      case 'finish':
-        break
-
-      case 'drain':
-        if (typeof this[_fd] === 'number')
-          this[_read]()
-        break
-
-      case 'error':
-        if (this[_errored])
-          return
-        this[_errored] = true
-        return super.emit(ev, data)
-
-      default:
-        return super.emit(ev, data)
-    }
-  }
-}
-
-class ReadStreamSync extends ReadStream {
-  [_open] () {
-    let threw = true
-    try {
-      this[_onopen](null, fs.openSync(this[_path], 'r'))
-      threw = false
-    } finally {
-      if (threw)
-        this[_close]()
-    }
-  }
-
-  [_read] () {
-    let threw = true
-    try {
-      if (!this[_reading]) {
-        this[_reading] = true
-        do {
-          const buf = this[_makeBuf]()
-          /* istanbul ignore next */
-          const br = buf.length === 0 ? 0
-            : fs.readSync(this[_fd], buf, 0, buf.length, null)
-          if (!this[_handleChunk](br, buf))
-            break
-        } while (true)
-        this[_reading] = false
-      }
-      threw = false
-    } finally {
-      if (threw)
-        this[_close]()
-    }
-  }
-
-  [_close] () {
-    if (this[_autoClose] && typeof this[_fd] === 'number') {
-      const fd = this[_fd]
-      this[_fd] = null
-      fs.closeSync(fd)
-      this.emit('close')
-    }
-  }
-}
-
-class WriteStream extends EE {
-  constructor (path, opt) {
-    opt = opt || {}
-    super(opt)
-    this.readable = false
-    this.writable = true
-    this[_errored] = false
-    this[_writing] = false
-    this[_ended] = false
-    this[_needDrain] = false
-    this[_queue] = []
-    this[_path] = path
-    this[_fd] = typeof opt.fd === 'number' ? opt.fd : null
-    this[_mode] = opt.mode === undefined ? 0o666 : opt.mode
-    this[_pos] = typeof opt.start === 'number' ? opt.start : null
-    this[_autoClose] = typeof opt.autoClose === 'boolean' ?
-      opt.autoClose : true
-
-    // truncating makes no sense when writing into the middle
-    const defaultFlag = this[_pos] !== null ? 'r+' : 'w'
-    this[_defaultFlag] = opt.flags === undefined
-    this[_flags] = this[_defaultFlag] ? defaultFlag : opt.flags
-
-    if (this[_fd] === null)
-      this[_open]()
-  }
-
-  emit (ev, data) {
-    if (ev === 'error') {
-      if (this[_errored])
-        return
-      this[_errored] = true
-    }
-    return super.emit(ev, data)
-  }
-
-
-  get fd () { return this[_fd] }
-  get path () { return this[_path] }
-
-  [_onerror] (er) {
-    this[_close]()
-    this[_writing] = true
-    this.emit('error', er)
-  }
-
-  [_open] () {
-    fs.open(this[_path], this[_flags], this[_mode],
-      (er, fd) => this[_onopen](er, fd))
-  }
-
-  [_onopen] (er, fd) {
-    if (this[_defaultFlag] &&
-        this[_flags] === 'r+' &&
-        er && er.code === 'ENOENT') {
-      this[_flags] = 'w'
-      this[_open]()
-    } else if (er)
-      this[_onerror](er)
-    else {
-      this[_fd] = fd
-      this.emit('open', fd)
-      this[_flush]()
-    }
-  }
-
-  end (buf, enc) {
-    if (buf)
-      this.write(buf, enc)
-
-    this[_ended] = true
-
-    // synthetic after-write logic, where drain/finish live
-    if (!this[_writing] && !this[_queue].length &&
-        typeof this[_fd] === 'number')
-      this[_onwrite](null, 0)
-    return this
-  }
-
-  write (buf, enc) {
-    if (typeof buf === 'string')
-      buf = Buffer.from(buf, enc)
-
-    if (this[_ended]) {
-      this.emit('error', new Error('write() after end()'))
-      return false
-    }
-
-    if (this[_fd] === null || this[_writing] || this[_queue].length) {
-      this[_queue].push(buf)
-      this[_needDrain] = true
-      return false
-    }
-
-    this[_writing] = true
-    this[_write](buf)
-    return true
-  }
-
-  [_write] (buf) {
-    fs.write(this[_fd], buf, 0, buf.length, this[_pos], (er, bw) =>
-      this[_onwrite](er, bw))
-  }
-
-  [_onwrite] (er, bw) {
-    if (er)
-      this[_onerror](er)
-    else {
-      if (this[_pos] !== null)
-        this[_pos] += bw
-      if (this[_queue].length)
-        this[_flush]()
-      else {
-        this[_writing] = false
-
-        if (this[_ended] && !this[_finished]) {
-          this[_finished] = true
-          this[_close]()
-          this.emit('finish')
-        } else if (this[_needDrain]) {
-          this[_needDrain] = false
-          this.emit('drain')
-        }
-      }
-    }
-  }
-
-  [_flush] () {
-    if (this[_queue].length === 0) {
-      if (this[_ended])
-        this[_onwrite](null, 0)
-    } else if (this[_queue].length === 1)
-      this[_write](this[_queue].pop())
-    else {
-      const iovec = this[_queue]
-      this[_queue] = []
-      writev(this[_fd], iovec, this[_pos],
-        (er, bw) => this[_onwrite](er, bw))
-    }
-  }
-
-  [_close] () {
-    if (this[_autoClose] && typeof this[_fd] === 'number') {
-      const fd = this[_fd]
-      this[_fd] = null
-      fs.close(fd, er => er ? this.emit('error', er) : this.emit('close'))
-    }
-  }
-}
-
-class WriteStreamSync extends WriteStream {
-  [_open] () {
-    let fd
-    // only wrap in a try{} block if we know we'll retry, to avoid
-    // the rethrow obscuring the error's source frame in most cases.
-    if (this[_defaultFlag] && this[_flags] === 'r+') {
-      try {
-        fd = fs.openSync(this[_path], this[_flags], this[_mode])
-      } catch (er) {
-        if (er.code === 'ENOENT') {
-          this[_flags] = 'w'
-          return this[_open]()
-        } else
-          throw er
-      }
-    } else
-      fd = fs.openSync(this[_path], this[_flags], this[_mode])
-
-    this[_onopen](null, fd)
-  }
-
-  [_close] () {
-    if (this[_autoClose] && typeof this[_fd] === 'number') {
-      const fd = this[_fd]
-      this[_fd] = null
-      fs.closeSync(fd)
-      this.emit('close')
-    }
-  }
-
-  [_write] (buf) {
-    // throw the original, but try to close if it fails
-    let threw = true
-    try {
-      this[_onwrite](null,
-        fs.writeSync(this[_fd], buf, 0, buf.length, this[_pos]))
-      threw = false
-    } finally {
-      if (threw)
-        try { this[_close]() } catch (_) {}
-    }
-  }
-}
-
-exports.ReadStream = ReadStream
-exports.ReadStreamSync = ReadStreamSync
-
-exports.WriteStream = WriteStream
-exports.WriteStreamSync = WriteStreamSync
 
 
 /***/ }),
@@ -48339,1091 +46406,212 @@ exports.getDownloadOptions = getDownloadOptions;
 
 /***/ }),
 
-/***/ 5324:
-/***/ ((module) => {
+/***/ 4555:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var fs = __nccwpck_require__(7147)
+var core
+if (process.platform === 'win32' || global.TESTING_WINDOWS) {
+  core = __nccwpck_require__(9367)
+} else {
+  core = __nccwpck_require__(2010)
+}
+
+module.exports = isexe
+isexe.sync = sync
+
+function isexe (path, options, cb) {
+  if (typeof options === 'function') {
+    cb = options
+    options = {}
+  }
+
+  if (!cb) {
+    if (typeof Promise !== 'function') {
+      throw new TypeError('callback not provided')
+    }
+
+    return new Promise(function (resolve, reject) {
+      isexe(path, options || {}, function (er, is) {
+        if (er) {
+          reject(er)
+        } else {
+          resolve(is)
+        }
+      })
+    })
+  }
+
+  core(path, options || {}, function (er, is) {
+    // ignore EACCES because that just means we aren't allowed to run it
+    if (er) {
+      if (er.code === 'EACCES' || options && options.ignoreErrors) {
+        er = null
+        is = false
+      }
+    }
+    cb(er, is)
+  })
+}
+
+function sync (path, options) {
+  // my kingdom for a filtered catch
+  try {
+    return core.sync(path, options || {})
+  } catch (er) {
+    if (options && options.ignoreErrors || er.code === 'EACCES') {
+      return false
+    } else {
+      throw er
+    }
+  }
+}
+
+
+/***/ }),
+
+/***/ 2010:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+module.exports = isexe
+isexe.sync = sync
+
+var fs = __nccwpck_require__(7147)
+
+function isexe (path, options, cb) {
+  fs.stat(path, function (er, stat) {
+    cb(er, er ? false : checkStat(stat, options))
+  })
+}
+
+function sync (path, options) {
+  return checkStat(fs.statSync(path), options)
+}
+
+function checkStat (stat, options) {
+  return stat.isFile() && checkMode(stat, options)
+}
+
+function checkMode (stat, options) {
+  var mod = stat.mode
+  var uid = stat.uid
+  var gid = stat.gid
+
+  var myUid = options.uid !== undefined ?
+    options.uid : process.getuid && process.getuid()
+  var myGid = options.gid !== undefined ?
+    options.gid : process.getgid && process.getgid()
+
+  var u = parseInt('100', 8)
+  var g = parseInt('010', 8)
+  var o = parseInt('001', 8)
+  var ug = u | g
+
+  var ret = (mod & o) ||
+    (mod & g) && gid === myGid ||
+    (mod & u) && uid === myUid ||
+    (mod & ug) && myUid === 0
+
+  return ret
+}
+
+
+/***/ }),
+
+/***/ 9367:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+module.exports = isexe
+isexe.sync = sync
+
+var fs = __nccwpck_require__(7147)
+
+function checkPathExt (path, options) {
+  var pathext = options.pathExt !== undefined ?
+    options.pathExt : process.env.PATHEXT
+
+  if (!pathext) {
+    return true
+  }
+
+  pathext = pathext.split(';')
+  if (pathext.indexOf('') !== -1) {
+    return true
+  }
+  for (var i = 0; i < pathext.length; i++) {
+    var p = pathext[i].toLowerCase()
+    if (p && path.substr(-p.length).toLowerCase() === p) {
+      return true
+    }
+  }
+  return false
+}
+
+function checkStat (stat, path, options) {
+  if (!stat.isSymbolicLink() && !stat.isFile()) {
+    return false
+  }
+  return checkPathExt(path, options)
+}
+
+function isexe (path, options, cb) {
+  fs.stat(path, function (er, stat) {
+    cb(er, er ? false : checkStat(stat, path, options))
+  })
+}
+
+function sync (path, options) {
+  return checkStat(fs.statSync(path), path, options)
+}
+
+
+/***/ }),
+
+/***/ 237:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 "use strict";
 
 
-module.exports = clone
+const { PassThrough } = __nccwpck_require__(2781);
 
-var getPrototypeOf = Object.getPrototypeOf || function (obj) {
-  return obj.__proto__
-}
+module.exports = function (/*streams...*/) {
+  var sources = []
+  var output  = new PassThrough({objectMode: true})
 
-function clone (obj) {
-  if (obj === null || typeof obj !== 'object')
-    return obj
+  output.setMaxListeners(0)
 
-  if (obj instanceof Object)
-    var copy = { __proto__: getPrototypeOf(obj) }
-  else
-    var copy = Object.create(null)
+  output.add = add
+  output.isEmpty = isEmpty
 
-  Object.getOwnPropertyNames(obj).forEach(function (key) {
-    Object.defineProperty(copy, key, Object.getOwnPropertyDescriptor(obj, key))
-  })
+  output.on('unpipe', remove)
 
-  return copy
-}
+  Array.prototype.slice.call(arguments).forEach(add)
 
+  return output
 
-/***/ }),
-
-/***/ 6820:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-var fs = __nccwpck_require__(7147)
-var polyfills = __nccwpck_require__(6528)
-var legacy = __nccwpck_require__(3256)
-var clone = __nccwpck_require__(5324)
-
-var util = __nccwpck_require__(3837)
-
-/* istanbul ignore next - node 0.x polyfill */
-var gracefulQueue
-var previousSymbol
-
-/* istanbul ignore else - node 0.x polyfill */
-if (typeof Symbol === 'function' && typeof Symbol.for === 'function') {
-  gracefulQueue = Symbol.for('graceful-fs.queue')
-  // This is used in testing by future versions
-  previousSymbol = Symbol.for('graceful-fs.previous')
-} else {
-  gracefulQueue = '___graceful-fs.queue'
-  previousSymbol = '___graceful-fs.previous'
-}
-
-function noop () {}
-
-function publishQueue(context, queue) {
-  Object.defineProperty(context, gracefulQueue, {
-    get: function() {
-      return queue
+  function add (source) {
+    if (Array.isArray(source)) {
+      source.forEach(add)
+      return this
     }
-  })
-}
 
-var debug = noop
-if (util.debuglog)
-  debug = util.debuglog('gfs4')
-else if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || ''))
-  debug = function() {
-    var m = util.format.apply(util, arguments)
-    m = 'GFS4: ' + m.split(/\n/).join('\nGFS4: ')
-    console.error(m)
+    sources.push(source);
+    source.once('end', remove.bind(null, source))
+    source.once('error', output.emit.bind(output, 'error'))
+    source.pipe(output, {end: false})
+    return this
   }
 
-// Once time initialization
-if (!fs[gracefulQueue]) {
-  // This queue can be shared by multiple loaded instances
-  var queue = global[gracefulQueue] || []
-  publishQueue(fs, queue)
+  function isEmpty () {
+    return sources.length == 0;
+  }
 
-  // Patch fs.close/closeSync to shared queue version, because we need
-  // to retry() whenever a close happens *anywhere* in the program.
-  // This is essential when multiple graceful-fs instances are
-  // in play at the same time.
-  fs.close = (function (fs$close) {
-    function close (fd, cb) {
-      return fs$close.call(fs, fd, function (err) {
-        // This function uses the graceful-fs shared queue
-        if (!err) {
-          resetQueue()
-        }
-
-        if (typeof cb === 'function')
-          cb.apply(this, arguments)
-      })
-    }
-
-    Object.defineProperty(close, previousSymbol, {
-      value: fs$close
-    })
-    return close
-  })(fs.close)
-
-  fs.closeSync = (function (fs$closeSync) {
-    function closeSync (fd) {
-      // This function uses the graceful-fs shared queue
-      fs$closeSync.apply(fs, arguments)
-      resetQueue()
-    }
-
-    Object.defineProperty(closeSync, previousSymbol, {
-      value: fs$closeSync
-    })
-    return closeSync
-  })(fs.closeSync)
-
-  if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || '')) {
-    process.on('exit', function() {
-      debug(fs[gracefulQueue])
-      __nccwpck_require__(9491).equal(fs[gracefulQueue].length, 0)
-    })
+  function remove (source) {
+    sources = sources.filter(function (it) { return it !== source })
+    if (!sources.length && output.readable) { output.end() }
   }
 }
-
-if (!global[gracefulQueue]) {
-  publishQueue(global, fs[gracefulQueue]);
-}
-
-module.exports = patch(clone(fs))
-if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs.__patched) {
-    module.exports = patch(fs)
-    fs.__patched = true;
-}
-
-function patch (fs) {
-  // Everything that references the open() function needs to be in here
-  polyfills(fs)
-  fs.gracefulify = patch
-
-  fs.createReadStream = createReadStream
-  fs.createWriteStream = createWriteStream
-  var fs$readFile = fs.readFile
-  fs.readFile = readFile
-  function readFile (path, options, cb) {
-    if (typeof options === 'function')
-      cb = options, options = null
-
-    return go$readFile(path, options, cb)
-
-    function go$readFile (path, options, cb, startTime) {
-      return fs$readFile(path, options, function (err) {
-        if (err && (err.code === 'EMFILE' || err.code === 'ENFILE'))
-          enqueue([go$readFile, [path, options, cb], err, startTime || Date.now(), Date.now()])
-        else {
-          if (typeof cb === 'function')
-            cb.apply(this, arguments)
-        }
-      })
-    }
-  }
-
-  var fs$writeFile = fs.writeFile
-  fs.writeFile = writeFile
-  function writeFile (path, data, options, cb) {
-    if (typeof options === 'function')
-      cb = options, options = null
-
-    return go$writeFile(path, data, options, cb)
-
-    function go$writeFile (path, data, options, cb, startTime) {
-      return fs$writeFile(path, data, options, function (err) {
-        if (err && (err.code === 'EMFILE' || err.code === 'ENFILE'))
-          enqueue([go$writeFile, [path, data, options, cb], err, startTime || Date.now(), Date.now()])
-        else {
-          if (typeof cb === 'function')
-            cb.apply(this, arguments)
-        }
-      })
-    }
-  }
-
-  var fs$appendFile = fs.appendFile
-  if (fs$appendFile)
-    fs.appendFile = appendFile
-  function appendFile (path, data, options, cb) {
-    if (typeof options === 'function')
-      cb = options, options = null
-
-    return go$appendFile(path, data, options, cb)
-
-    function go$appendFile (path, data, options, cb, startTime) {
-      return fs$appendFile(path, data, options, function (err) {
-        if (err && (err.code === 'EMFILE' || err.code === 'ENFILE'))
-          enqueue([go$appendFile, [path, data, options, cb], err, startTime || Date.now(), Date.now()])
-        else {
-          if (typeof cb === 'function')
-            cb.apply(this, arguments)
-        }
-      })
-    }
-  }
-
-  var fs$copyFile = fs.copyFile
-  if (fs$copyFile)
-    fs.copyFile = copyFile
-  function copyFile (src, dest, flags, cb) {
-    if (typeof flags === 'function') {
-      cb = flags
-      flags = 0
-    }
-    return go$copyFile(src, dest, flags, cb)
-
-    function go$copyFile (src, dest, flags, cb, startTime) {
-      return fs$copyFile(src, dest, flags, function (err) {
-        if (err && (err.code === 'EMFILE' || err.code === 'ENFILE'))
-          enqueue([go$copyFile, [src, dest, flags, cb], err, startTime || Date.now(), Date.now()])
-        else {
-          if (typeof cb === 'function')
-            cb.apply(this, arguments)
-        }
-      })
-    }
-  }
-
-  var fs$readdir = fs.readdir
-  fs.readdir = readdir
-  var noReaddirOptionVersions = /^v[0-5]\./
-  function readdir (path, options, cb) {
-    if (typeof options === 'function')
-      cb = options, options = null
-
-    var go$readdir = noReaddirOptionVersions.test(process.version)
-      ? function go$readdir (path, options, cb, startTime) {
-        return fs$readdir(path, fs$readdirCallback(
-          path, options, cb, startTime
-        ))
-      }
-      : function go$readdir (path, options, cb, startTime) {
-        return fs$readdir(path, options, fs$readdirCallback(
-          path, options, cb, startTime
-        ))
-      }
-
-    return go$readdir(path, options, cb)
-
-    function fs$readdirCallback (path, options, cb, startTime) {
-      return function (err, files) {
-        if (err && (err.code === 'EMFILE' || err.code === 'ENFILE'))
-          enqueue([
-            go$readdir,
-            [path, options, cb],
-            err,
-            startTime || Date.now(),
-            Date.now()
-          ])
-        else {
-          if (files && files.sort)
-            files.sort()
-
-          if (typeof cb === 'function')
-            cb.call(this, err, files)
-        }
-      }
-    }
-  }
-
-  if (process.version.substr(0, 4) === 'v0.8') {
-    var legStreams = legacy(fs)
-    ReadStream = legStreams.ReadStream
-    WriteStream = legStreams.WriteStream
-  }
-
-  var fs$ReadStream = fs.ReadStream
-  if (fs$ReadStream) {
-    ReadStream.prototype = Object.create(fs$ReadStream.prototype)
-    ReadStream.prototype.open = ReadStream$open
-  }
-
-  var fs$WriteStream = fs.WriteStream
-  if (fs$WriteStream) {
-    WriteStream.prototype = Object.create(fs$WriteStream.prototype)
-    WriteStream.prototype.open = WriteStream$open
-  }
-
-  Object.defineProperty(fs, 'ReadStream', {
-    get: function () {
-      return ReadStream
-    },
-    set: function (val) {
-      ReadStream = val
-    },
-    enumerable: true,
-    configurable: true
-  })
-  Object.defineProperty(fs, 'WriteStream', {
-    get: function () {
-      return WriteStream
-    },
-    set: function (val) {
-      WriteStream = val
-    },
-    enumerable: true,
-    configurable: true
-  })
-
-  // legacy names
-  var FileReadStream = ReadStream
-  Object.defineProperty(fs, 'FileReadStream', {
-    get: function () {
-      return FileReadStream
-    },
-    set: function (val) {
-      FileReadStream = val
-    },
-    enumerable: true,
-    configurable: true
-  })
-  var FileWriteStream = WriteStream
-  Object.defineProperty(fs, 'FileWriteStream', {
-    get: function () {
-      return FileWriteStream
-    },
-    set: function (val) {
-      FileWriteStream = val
-    },
-    enumerable: true,
-    configurable: true
-  })
-
-  function ReadStream (path, options) {
-    if (this instanceof ReadStream)
-      return fs$ReadStream.apply(this, arguments), this
-    else
-      return ReadStream.apply(Object.create(ReadStream.prototype), arguments)
-  }
-
-  function ReadStream$open () {
-    var that = this
-    open(that.path, that.flags, that.mode, function (err, fd) {
-      if (err) {
-        if (that.autoClose)
-          that.destroy()
-
-        that.emit('error', err)
-      } else {
-        that.fd = fd
-        that.emit('open', fd)
-        that.read()
-      }
-    })
-  }
-
-  function WriteStream (path, options) {
-    if (this instanceof WriteStream)
-      return fs$WriteStream.apply(this, arguments), this
-    else
-      return WriteStream.apply(Object.create(WriteStream.prototype), arguments)
-  }
-
-  function WriteStream$open () {
-    var that = this
-    open(that.path, that.flags, that.mode, function (err, fd) {
-      if (err) {
-        that.destroy()
-        that.emit('error', err)
-      } else {
-        that.fd = fd
-        that.emit('open', fd)
-      }
-    })
-  }
-
-  function createReadStream (path, options) {
-    return new fs.ReadStream(path, options)
-  }
-
-  function createWriteStream (path, options) {
-    return new fs.WriteStream(path, options)
-  }
-
-  var fs$open = fs.open
-  fs.open = open
-  function open (path, flags, mode, cb) {
-    if (typeof mode === 'function')
-      cb = mode, mode = null
-
-    return go$open(path, flags, mode, cb)
-
-    function go$open (path, flags, mode, cb, startTime) {
-      return fs$open(path, flags, mode, function (err, fd) {
-        if (err && (err.code === 'EMFILE' || err.code === 'ENFILE'))
-          enqueue([go$open, [path, flags, mode, cb], err, startTime || Date.now(), Date.now()])
-        else {
-          if (typeof cb === 'function')
-            cb.apply(this, arguments)
-        }
-      })
-    }
-  }
-
-  return fs
-}
-
-function enqueue (elem) {
-  debug('ENQUEUE', elem[0].name, elem[1])
-  fs[gracefulQueue].push(elem)
-  retry()
-}
-
-// keep track of the timeout between retry() calls
-var retryTimer
-
-// reset the startTime and lastTime to now
-// this resets the start of the 60 second overall timeout as well as the
-// delay between attempts so that we'll retry these jobs sooner
-function resetQueue () {
-  var now = Date.now()
-  for (var i = 0; i < fs[gracefulQueue].length; ++i) {
-    // entries that are only a length of 2 are from an older version, don't
-    // bother modifying those since they'll be retried anyway.
-    if (fs[gracefulQueue][i].length > 2) {
-      fs[gracefulQueue][i][3] = now // startTime
-      fs[gracefulQueue][i][4] = now // lastTime
-    }
-  }
-  // call retry to make sure we're actively processing the queue
-  retry()
-}
-
-function retry () {
-  // clear the timer and remove it to help prevent unintended concurrency
-  clearTimeout(retryTimer)
-  retryTimer = undefined
-
-  if (fs[gracefulQueue].length === 0)
-    return
-
-  var elem = fs[gracefulQueue].shift()
-  var fn = elem[0]
-  var args = elem[1]
-  // these items may be unset if they were added by an older graceful-fs
-  var err = elem[2]
-  var startTime = elem[3]
-  var lastTime = elem[4]
-
-  // if we don't have a startTime we have no way of knowing if we've waited
-  // long enough, so go ahead and retry this item now
-  if (startTime === undefined) {
-    debug('RETRY', fn.name, args)
-    fn.apply(null, args)
-  } else if (Date.now() - startTime >= 60000) {
-    // it's been more than 60 seconds total, bail now
-    debug('TIMEOUT', fn.name, args)
-    var cb = args.pop()
-    if (typeof cb === 'function')
-      cb.call(null, err)
-  } else {
-    // the amount of time between the last attempt and right now
-    var sinceAttempt = Date.now() - lastTime
-    // the amount of time between when we first tried, and when we last tried
-    // rounded up to at least 1
-    var sinceStart = Math.max(lastTime - startTime, 1)
-    // backoff. wait longer than the total time we've been retrying, but only
-    // up to a maximum of 100ms
-    var desiredDelay = Math.min(sinceStart * 1.2, 100)
-    // it's been long enough since the last retry, do it again
-    if (sinceAttempt >= desiredDelay) {
-      debug('RETRY', fn.name, args)
-      fn.apply(null, args.concat([startTime]))
-    } else {
-      // if we can't do this job yet, push it to the end of the queue
-      // and let the next iteration check again
-      fs[gracefulQueue].push(elem)
-    }
-  }
-
-  // schedule our next run if one isn't already scheduled
-  if (retryTimer === undefined) {
-    retryTimer = setTimeout(retry, 0)
-  }
-}
-
-
-/***/ }),
-
-/***/ 3256:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-var Stream = (__nccwpck_require__(2781).Stream)
-
-module.exports = legacy
-
-function legacy (fs) {
-  return {
-    ReadStream: ReadStream,
-    WriteStream: WriteStream
-  }
-
-  function ReadStream (path, options) {
-    if (!(this instanceof ReadStream)) return new ReadStream(path, options);
-
-    Stream.call(this);
-
-    var self = this;
-
-    this.path = path;
-    this.fd = null;
-    this.readable = true;
-    this.paused = false;
-
-    this.flags = 'r';
-    this.mode = 438; /*=0666*/
-    this.bufferSize = 64 * 1024;
-
-    options = options || {};
-
-    // Mixin options into this
-    var keys = Object.keys(options);
-    for (var index = 0, length = keys.length; index < length; index++) {
-      var key = keys[index];
-      this[key] = options[key];
-    }
-
-    if (this.encoding) this.setEncoding(this.encoding);
-
-    if (this.start !== undefined) {
-      if ('number' !== typeof this.start) {
-        throw TypeError('start must be a Number');
-      }
-      if (this.end === undefined) {
-        this.end = Infinity;
-      } else if ('number' !== typeof this.end) {
-        throw TypeError('end must be a Number');
-      }
-
-      if (this.start > this.end) {
-        throw new Error('start must be <= end');
-      }
-
-      this.pos = this.start;
-    }
-
-    if (this.fd !== null) {
-      process.nextTick(function() {
-        self._read();
-      });
-      return;
-    }
-
-    fs.open(this.path, this.flags, this.mode, function (err, fd) {
-      if (err) {
-        self.emit('error', err);
-        self.readable = false;
-        return;
-      }
-
-      self.fd = fd;
-      self.emit('open', fd);
-      self._read();
-    })
-  }
-
-  function WriteStream (path, options) {
-    if (!(this instanceof WriteStream)) return new WriteStream(path, options);
-
-    Stream.call(this);
-
-    this.path = path;
-    this.fd = null;
-    this.writable = true;
-
-    this.flags = 'w';
-    this.encoding = 'binary';
-    this.mode = 438; /*=0666*/
-    this.bytesWritten = 0;
-
-    options = options || {};
-
-    // Mixin options into this
-    var keys = Object.keys(options);
-    for (var index = 0, length = keys.length; index < length; index++) {
-      var key = keys[index];
-      this[key] = options[key];
-    }
-
-    if (this.start !== undefined) {
-      if ('number' !== typeof this.start) {
-        throw TypeError('start must be a Number');
-      }
-      if (this.start < 0) {
-        throw new Error('start must be >= zero');
-      }
-
-      this.pos = this.start;
-    }
-
-    this.busy = false;
-    this._queue = [];
-
-    if (this.fd === null) {
-      this._open = fs.open;
-      this._queue.push([this._open, this.path, this.flags, this.mode, undefined]);
-      this.flush();
-    }
-  }
-}
-
-
-/***/ }),
-
-/***/ 6528:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-var constants = __nccwpck_require__(2057)
-
-var origCwd = process.cwd
-var cwd = null
-
-var platform = process.env.GRACEFUL_FS_PLATFORM || process.platform
-
-process.cwd = function() {
-  if (!cwd)
-    cwd = origCwd.call(process)
-  return cwd
-}
-try {
-  process.cwd()
-} catch (er) {}
-
-// This check is needed until node.js 12 is required
-if (typeof process.chdir === 'function') {
-  var chdir = process.chdir
-  process.chdir = function (d) {
-    cwd = null
-    chdir.call(process, d)
-  }
-  if (Object.setPrototypeOf) Object.setPrototypeOf(process.chdir, chdir)
-}
-
-module.exports = patch
-
-function patch (fs) {
-  // (re-)implement some things that are known busted or missing.
-
-  // lchmod, broken prior to 0.6.2
-  // back-port the fix here.
-  if (constants.hasOwnProperty('O_SYMLINK') &&
-      process.version.match(/^v0\.6\.[0-2]|^v0\.5\./)) {
-    patchLchmod(fs)
-  }
-
-  // lutimes implementation, or no-op
-  if (!fs.lutimes) {
-    patchLutimes(fs)
-  }
-
-  // https://github.com/isaacs/node-graceful-fs/issues/4
-  // Chown should not fail on einval or eperm if non-root.
-  // It should not fail on enosys ever, as this just indicates
-  // that a fs doesn't support the intended operation.
-
-  fs.chown = chownFix(fs.chown)
-  fs.fchown = chownFix(fs.fchown)
-  fs.lchown = chownFix(fs.lchown)
-
-  fs.chmod = chmodFix(fs.chmod)
-  fs.fchmod = chmodFix(fs.fchmod)
-  fs.lchmod = chmodFix(fs.lchmod)
-
-  fs.chownSync = chownFixSync(fs.chownSync)
-  fs.fchownSync = chownFixSync(fs.fchownSync)
-  fs.lchownSync = chownFixSync(fs.lchownSync)
-
-  fs.chmodSync = chmodFixSync(fs.chmodSync)
-  fs.fchmodSync = chmodFixSync(fs.fchmodSync)
-  fs.lchmodSync = chmodFixSync(fs.lchmodSync)
-
-  fs.stat = statFix(fs.stat)
-  fs.fstat = statFix(fs.fstat)
-  fs.lstat = statFix(fs.lstat)
-
-  fs.statSync = statFixSync(fs.statSync)
-  fs.fstatSync = statFixSync(fs.fstatSync)
-  fs.lstatSync = statFixSync(fs.lstatSync)
-
-  // if lchmod/lchown do not exist, then make them no-ops
-  if (fs.chmod && !fs.lchmod) {
-    fs.lchmod = function (path, mode, cb) {
-      if (cb) process.nextTick(cb)
-    }
-    fs.lchmodSync = function () {}
-  }
-  if (fs.chown && !fs.lchown) {
-    fs.lchown = function (path, uid, gid, cb) {
-      if (cb) process.nextTick(cb)
-    }
-    fs.lchownSync = function () {}
-  }
-
-  // on Windows, A/V software can lock the directory, causing this
-  // to fail with an EACCES or EPERM if the directory contains newly
-  // created files.  Try again on failure, for up to 60 seconds.
-
-  // Set the timeout this long because some Windows Anti-Virus, such as Parity
-  // bit9, may lock files for up to a minute, causing npm package install
-  // failures. Also, take care to yield the scheduler. Windows scheduling gives
-  // CPU to a busy looping process, which can cause the program causing the lock
-  // contention to be starved of CPU by node, so the contention doesn't resolve.
-  if (platform === "win32") {
-    fs.rename = typeof fs.rename !== 'function' ? fs.rename
-    : (function (fs$rename) {
-      function rename (from, to, cb) {
-        var start = Date.now()
-        var backoff = 0;
-        fs$rename(from, to, function CB (er) {
-          if (er
-              && (er.code === "EACCES" || er.code === "EPERM" || er.code === "EBUSY")
-              && Date.now() - start < 60000) {
-            setTimeout(function() {
-              fs.stat(to, function (stater, st) {
-                if (stater && stater.code === "ENOENT")
-                  fs$rename(from, to, CB);
-                else
-                  cb(er)
-              })
-            }, backoff)
-            if (backoff < 100)
-              backoff += 10;
-            return;
-          }
-          if (cb) cb(er)
-        })
-      }
-      if (Object.setPrototypeOf) Object.setPrototypeOf(rename, fs$rename)
-      return rename
-    })(fs.rename)
-  }
-
-  // if read() returns EAGAIN, then just try it again.
-  fs.read = typeof fs.read !== 'function' ? fs.read
-  : (function (fs$read) {
-    function read (fd, buffer, offset, length, position, callback_) {
-      var callback
-      if (callback_ && typeof callback_ === 'function') {
-        var eagCounter = 0
-        callback = function (er, _, __) {
-          if (er && er.code === 'EAGAIN' && eagCounter < 10) {
-            eagCounter ++
-            return fs$read.call(fs, fd, buffer, offset, length, position, callback)
-          }
-          callback_.apply(this, arguments)
-        }
-      }
-      return fs$read.call(fs, fd, buffer, offset, length, position, callback)
-    }
-
-    // This ensures `util.promisify` works as it does for native `fs.read`.
-    if (Object.setPrototypeOf) Object.setPrototypeOf(read, fs$read)
-    return read
-  })(fs.read)
-
-  fs.readSync = typeof fs.readSync !== 'function' ? fs.readSync
-  : (function (fs$readSync) { return function (fd, buffer, offset, length, position) {
-    var eagCounter = 0
-    while (true) {
-      try {
-        return fs$readSync.call(fs, fd, buffer, offset, length, position)
-      } catch (er) {
-        if (er.code === 'EAGAIN' && eagCounter < 10) {
-          eagCounter ++
-          continue
-        }
-        throw er
-      }
-    }
-  }})(fs.readSync)
-
-  function patchLchmod (fs) {
-    fs.lchmod = function (path, mode, callback) {
-      fs.open( path
-             , constants.O_WRONLY | constants.O_SYMLINK
-             , mode
-             , function (err, fd) {
-        if (err) {
-          if (callback) callback(err)
-          return
-        }
-        // prefer to return the chmod error, if one occurs,
-        // but still try to close, and report closing errors if they occur.
-        fs.fchmod(fd, mode, function (err) {
-          fs.close(fd, function(err2) {
-            if (callback) callback(err || err2)
-          })
-        })
-      })
-    }
-
-    fs.lchmodSync = function (path, mode) {
-      var fd = fs.openSync(path, constants.O_WRONLY | constants.O_SYMLINK, mode)
-
-      // prefer to return the chmod error, if one occurs,
-      // but still try to close, and report closing errors if they occur.
-      var threw = true
-      var ret
-      try {
-        ret = fs.fchmodSync(fd, mode)
-        threw = false
-      } finally {
-        if (threw) {
-          try {
-            fs.closeSync(fd)
-          } catch (er) {}
-        } else {
-          fs.closeSync(fd)
-        }
-      }
-      return ret
-    }
-  }
-
-  function patchLutimes (fs) {
-    if (constants.hasOwnProperty("O_SYMLINK") && fs.futimes) {
-      fs.lutimes = function (path, at, mt, cb) {
-        fs.open(path, constants.O_SYMLINK, function (er, fd) {
-          if (er) {
-            if (cb) cb(er)
-            return
-          }
-          fs.futimes(fd, at, mt, function (er) {
-            fs.close(fd, function (er2) {
-              if (cb) cb(er || er2)
-            })
-          })
-        })
-      }
-
-      fs.lutimesSync = function (path, at, mt) {
-        var fd = fs.openSync(path, constants.O_SYMLINK)
-        var ret
-        var threw = true
-        try {
-          ret = fs.futimesSync(fd, at, mt)
-          threw = false
-        } finally {
-          if (threw) {
-            try {
-              fs.closeSync(fd)
-            } catch (er) {}
-          } else {
-            fs.closeSync(fd)
-          }
-        }
-        return ret
-      }
-
-    } else if (fs.futimes) {
-      fs.lutimes = function (_a, _b, _c, cb) { if (cb) process.nextTick(cb) }
-      fs.lutimesSync = function () {}
-    }
-  }
-
-  function chmodFix (orig) {
-    if (!orig) return orig
-    return function (target, mode, cb) {
-      return orig.call(fs, target, mode, function (er) {
-        if (chownErOk(er)) er = null
-        if (cb) cb.apply(this, arguments)
-      })
-    }
-  }
-
-  function chmodFixSync (orig) {
-    if (!orig) return orig
-    return function (target, mode) {
-      try {
-        return orig.call(fs, target, mode)
-      } catch (er) {
-        if (!chownErOk(er)) throw er
-      }
-    }
-  }
-
-
-  function chownFix (orig) {
-    if (!orig) return orig
-    return function (target, uid, gid, cb) {
-      return orig.call(fs, target, uid, gid, function (er) {
-        if (chownErOk(er)) er = null
-        if (cb) cb.apply(this, arguments)
-      })
-    }
-  }
-
-  function chownFixSync (orig) {
-    if (!orig) return orig
-    return function (target, uid, gid) {
-      try {
-        return orig.call(fs, target, uid, gid)
-      } catch (er) {
-        if (!chownErOk(er)) throw er
-      }
-    }
-  }
-
-  function statFix (orig) {
-    if (!orig) return orig
-    // Older versions of Node erroneously returned signed integers for
-    // uid + gid.
-    return function (target, options, cb) {
-      if (typeof options === 'function') {
-        cb = options
-        options = null
-      }
-      function callback (er, stats) {
-        if (stats) {
-          if (stats.uid < 0) stats.uid += 0x100000000
-          if (stats.gid < 0) stats.gid += 0x100000000
-        }
-        if (cb) cb.apply(this, arguments)
-      }
-      return options ? orig.call(fs, target, options, callback)
-        : orig.call(fs, target, callback)
-    }
-  }
-
-  function statFixSync (orig) {
-    if (!orig) return orig
-    // Older versions of Node erroneously returned signed integers for
-    // uid + gid.
-    return function (target, options) {
-      var stats = options ? orig.call(fs, target, options)
-        : orig.call(fs, target)
-      if (stats) {
-        if (stats.uid < 0) stats.uid += 0x100000000
-        if (stats.gid < 0) stats.gid += 0x100000000
-      }
-      return stats;
-    }
-  }
-
-  // ENOSYS means that the fs doesn't support the op. Just ignore
-  // that, because it doesn't matter.
-  //
-  // if there's no getuid, or if getuid() is something other
-  // than 0, and the error is EINVAL or EPERM, then just ignore
-  // it.
-  //
-  // This specific case is a silent failure in cp, install, tar,
-  // and most other unix tools that manage permissions.
-  //
-  // When running as root, or if other types of errors are
-  // encountered, then it's strict.
-  function chownErOk (er) {
-    if (!er)
-      return true
-
-    if (er.code === "ENOSYS")
-      return true
-
-    var nonroot = !process.getuid || process.getuid() !== 0
-    if (nonroot) {
-      if (er.code === "EINVAL" || er.code === "EPERM")
-        return true
-    }
-
-    return false
-  }
-}
-
-
-/***/ }),
-
-/***/ 9470:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-let _fs
-try {
-  _fs = __nccwpck_require__(6820)
-} catch (_) {
-  _fs = __nccwpck_require__(7147)
-}
-const universalify = __nccwpck_require__(3946)
-const { stringify, stripBom } = __nccwpck_require__(4938)
-
-async function _readFile (file, options = {}) {
-  if (typeof options === 'string') {
-    options = { encoding: options }
-  }
-
-  const fs = options.fs || _fs
-
-  const shouldThrow = 'throws' in options ? options.throws : true
-
-  let data = await universalify.fromCallback(fs.readFile)(file, options)
-
-  data = stripBom(data)
-
-  let obj
-  try {
-    obj = JSON.parse(data, options ? options.reviver : null)
-  } catch (err) {
-    if (shouldThrow) {
-      err.message = `${file}: ${err.message}`
-      throw err
-    } else {
-      return null
-    }
-  }
-
-  return obj
-}
-
-const readFile = universalify.fromPromise(_readFile)
-
-function readFileSync (file, options = {}) {
-  if (typeof options === 'string') {
-    options = { encoding: options }
-  }
-
-  const fs = options.fs || _fs
-
-  const shouldThrow = 'throws' in options ? options.throws : true
-
-  try {
-    let content = fs.readFileSync(file, options)
-    content = stripBom(content)
-    return JSON.parse(content, options.reviver)
-  } catch (err) {
-    if (shouldThrow) {
-      err.message = `${file}: ${err.message}`
-      throw err
-    } else {
-      return null
-    }
-  }
-}
-
-async function _writeFile (file, obj, options = {}) {
-  const fs = options.fs || _fs
-
-  const str = stringify(obj, options)
-
-  await universalify.fromCallback(fs.writeFile)(file, str, options)
-}
-
-const writeFile = universalify.fromPromise(_writeFile)
-
-function writeFileSync (file, obj, options = {}) {
-  const fs = options.fs || _fs
-
-  const str = stringify(obj, options)
-  // not sure if fs.writeFileSync returns anything, but just in case
-  return fs.writeFileSync(file, str, options)
-}
-
-const jsonfile = {
-  readFile,
-  readFileSync,
-  writeFile,
-  writeFileSync
-}
-
-module.exports = jsonfile
-
-
-/***/ }),
-
-/***/ 4938:
-/***/ ((module) => {
-
-function stringify (obj, { EOL = '\n', finalEOL = true, replacer = null, spaces } = {}) {
-  const EOF = finalEOL ? EOL : ''
-  const str = JSON.stringify(obj, replacer, spaces)
-
-  return str.replace(/\n/g, EOL) + EOF
-}
-
-function stripBom (content) {
-  // we do this because JSON.parse would convert it to a utf8 string if encoding wasn't specified
-  if (Buffer.isBuffer(content)) content = content.toString('utf8')
-  return content.replace(/^\uFEFF/, '')
-}
-
-module.exports = { stringify, stripBom }
 
 
 /***/ }),
@@ -50593,2125 +47781,6 @@ function globUnescape (s) {
 function regExpEscape (s) {
   return s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')
 }
-
-
-/***/ }),
-
-/***/ 6424:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const proc = typeof process === 'object' && process ? process : {
-  stdout: null,
-  stderr: null,
-}
-const EE = __nccwpck_require__(2361)
-const Stream = __nccwpck_require__(2781)
-const SD = (__nccwpck_require__(1576).StringDecoder)
-
-const EOF = Symbol('EOF')
-const MAYBE_EMIT_END = Symbol('maybeEmitEnd')
-const EMITTED_END = Symbol('emittedEnd')
-const EMITTING_END = Symbol('emittingEnd')
-const EMITTED_ERROR = Symbol('emittedError')
-const CLOSED = Symbol('closed')
-const READ = Symbol('read')
-const FLUSH = Symbol('flush')
-const FLUSHCHUNK = Symbol('flushChunk')
-const ENCODING = Symbol('encoding')
-const DECODER = Symbol('decoder')
-const FLOWING = Symbol('flowing')
-const PAUSED = Symbol('paused')
-const RESUME = Symbol('resume')
-const BUFFERLENGTH = Symbol('bufferLength')
-const BUFFERPUSH = Symbol('bufferPush')
-const BUFFERSHIFT = Symbol('bufferShift')
-const OBJECTMODE = Symbol('objectMode')
-const DESTROYED = Symbol('destroyed')
-const EMITDATA = Symbol('emitData')
-const EMITEND = Symbol('emitEnd')
-const EMITEND2 = Symbol('emitEnd2')
-const ASYNC = Symbol('async')
-
-const defer = fn => Promise.resolve().then(fn)
-
-// TODO remove when Node v8 support drops
-const doIter = global._MP_NO_ITERATOR_SYMBOLS_  !== '1'
-const ASYNCITERATOR = doIter && Symbol.asyncIterator
-  || Symbol('asyncIterator not implemented')
-const ITERATOR = doIter && Symbol.iterator
-  || Symbol('iterator not implemented')
-
-// events that mean 'the stream is over'
-// these are treated specially, and re-emitted
-// if they are listened for after emitting.
-const isEndish = ev =>
-  ev === 'end' ||
-  ev === 'finish' ||
-  ev === 'prefinish'
-
-const isArrayBuffer = b => b instanceof ArrayBuffer ||
-  typeof b === 'object' &&
-  b.constructor &&
-  b.constructor.name === 'ArrayBuffer' &&
-  b.byteLength >= 0
-
-const isArrayBufferView = b => !Buffer.isBuffer(b) && ArrayBuffer.isView(b)
-
-class Pipe {
-  constructor (src, dest, opts) {
-    this.src = src
-    this.dest = dest
-    this.opts = opts
-    this.ondrain = () => src[RESUME]()
-    dest.on('drain', this.ondrain)
-  }
-  unpipe () {
-    this.dest.removeListener('drain', this.ondrain)
-  }
-  // istanbul ignore next - only here for the prototype
-  proxyErrors () {}
-  end () {
-    this.unpipe()
-    if (this.opts.end)
-      this.dest.end()
-  }
-}
-
-class PipeProxyErrors extends Pipe {
-  unpipe () {
-    this.src.removeListener('error', this.proxyErrors)
-    super.unpipe()
-  }
-  constructor (src, dest, opts) {
-    super(src, dest, opts)
-    this.proxyErrors = er => dest.emit('error', er)
-    src.on('error', this.proxyErrors)
-  }
-}
-
-module.exports = class Minipass extends Stream {
-  constructor (options) {
-    super()
-    this[FLOWING] = false
-    // whether we're explicitly paused
-    this[PAUSED] = false
-    this.pipes = []
-    this.buffer = []
-    this[OBJECTMODE] = options && options.objectMode || false
-    if (this[OBJECTMODE])
-      this[ENCODING] = null
-    else
-      this[ENCODING] = options && options.encoding || null
-    if (this[ENCODING] === 'buffer')
-      this[ENCODING] = null
-    this[ASYNC] = options && !!options.async || false
-    this[DECODER] = this[ENCODING] ? new SD(this[ENCODING]) : null
-    this[EOF] = false
-    this[EMITTED_END] = false
-    this[EMITTING_END] = false
-    this[CLOSED] = false
-    this[EMITTED_ERROR] = null
-    this.writable = true
-    this.readable = true
-    this[BUFFERLENGTH] = 0
-    this[DESTROYED] = false
-  }
-
-  get bufferLength () { return this[BUFFERLENGTH] }
-
-  get encoding () { return this[ENCODING] }
-  set encoding (enc) {
-    if (this[OBJECTMODE])
-      throw new Error('cannot set encoding in objectMode')
-
-    if (this[ENCODING] && enc !== this[ENCODING] &&
-        (this[DECODER] && this[DECODER].lastNeed || this[BUFFERLENGTH]))
-      throw new Error('cannot change encoding')
-
-    if (this[ENCODING] !== enc) {
-      this[DECODER] = enc ? new SD(enc) : null
-      if (this.buffer.length)
-        this.buffer = this.buffer.map(chunk => this[DECODER].write(chunk))
-    }
-
-    this[ENCODING] = enc
-  }
-
-  setEncoding (enc) {
-    this.encoding = enc
-  }
-
-  get objectMode () { return this[OBJECTMODE] }
-  set objectMode (om) { this[OBJECTMODE] = this[OBJECTMODE] || !!om }
-
-  get ['async'] () { return this[ASYNC] }
-  set ['async'] (a) { this[ASYNC] = this[ASYNC] || !!a }
-
-  write (chunk, encoding, cb) {
-    if (this[EOF])
-      throw new Error('write after end')
-
-    if (this[DESTROYED]) {
-      this.emit('error', Object.assign(
-        new Error('Cannot call write after a stream was destroyed'),
-        { code: 'ERR_STREAM_DESTROYED' }
-      ))
-      return true
-    }
-
-    if (typeof encoding === 'function')
-      cb = encoding, encoding = 'utf8'
-
-    if (!encoding)
-      encoding = 'utf8'
-
-    const fn = this[ASYNC] ? defer : f => f()
-
-    // convert array buffers and typed array views into buffers
-    // at some point in the future, we may want to do the opposite!
-    // leave strings and buffers as-is
-    // anything else switches us into object mode
-    if (!this[OBJECTMODE] && !Buffer.isBuffer(chunk)) {
-      if (isArrayBufferView(chunk))
-        chunk = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
-      else if (isArrayBuffer(chunk))
-        chunk = Buffer.from(chunk)
-      else if (typeof chunk !== 'string')
-        // use the setter so we throw if we have encoding set
-        this.objectMode = true
-    }
-
-    // handle object mode up front, since it's simpler
-    // this yields better performance, fewer checks later.
-    if (this[OBJECTMODE]) {
-      /* istanbul ignore if - maybe impossible? */
-      if (this.flowing && this[BUFFERLENGTH] !== 0)
-        this[FLUSH](true)
-
-      if (this.flowing)
-        this.emit('data', chunk)
-      else
-        this[BUFFERPUSH](chunk)
-
-      if (this[BUFFERLENGTH] !== 0)
-        this.emit('readable')
-
-      if (cb)
-        fn(cb)
-
-      return this.flowing
-    }
-
-    // at this point the chunk is a buffer or string
-    // don't buffer it up or send it to the decoder
-    if (!chunk.length) {
-      if (this[BUFFERLENGTH] !== 0)
-        this.emit('readable')
-      if (cb)
-        fn(cb)
-      return this.flowing
-    }
-
-    // fast-path writing strings of same encoding to a stream with
-    // an empty buffer, skipping the buffer/decoder dance
-    if (typeof chunk === 'string' &&
-        // unless it is a string already ready for us to use
-        !(encoding === this[ENCODING] && !this[DECODER].lastNeed)) {
-      chunk = Buffer.from(chunk, encoding)
-    }
-
-    if (Buffer.isBuffer(chunk) && this[ENCODING])
-      chunk = this[DECODER].write(chunk)
-
-    // Note: flushing CAN potentially switch us into not-flowing mode
-    if (this.flowing && this[BUFFERLENGTH] !== 0)
-      this[FLUSH](true)
-
-    if (this.flowing)
-      this.emit('data', chunk)
-    else
-      this[BUFFERPUSH](chunk)
-
-    if (this[BUFFERLENGTH] !== 0)
-      this.emit('readable')
-
-    if (cb)
-      fn(cb)
-
-    return this.flowing
-  }
-
-  read (n) {
-    if (this[DESTROYED])
-      return null
-
-    if (this[BUFFERLENGTH] === 0 || n === 0 || n > this[BUFFERLENGTH]) {
-      this[MAYBE_EMIT_END]()
-      return null
-    }
-
-    if (this[OBJECTMODE])
-      n = null
-
-    if (this.buffer.length > 1 && !this[OBJECTMODE]) {
-      if (this.encoding)
-        this.buffer = [this.buffer.join('')]
-      else
-        this.buffer = [Buffer.concat(this.buffer, this[BUFFERLENGTH])]
-    }
-
-    const ret = this[READ](n || null, this.buffer[0])
-    this[MAYBE_EMIT_END]()
-    return ret
-  }
-
-  [READ] (n, chunk) {
-    if (n === chunk.length || n === null)
-      this[BUFFERSHIFT]()
-    else {
-      this.buffer[0] = chunk.slice(n)
-      chunk = chunk.slice(0, n)
-      this[BUFFERLENGTH] -= n
-    }
-
-    this.emit('data', chunk)
-
-    if (!this.buffer.length && !this[EOF])
-      this.emit('drain')
-
-    return chunk
-  }
-
-  end (chunk, encoding, cb) {
-    if (typeof chunk === 'function')
-      cb = chunk, chunk = null
-    if (typeof encoding === 'function')
-      cb = encoding, encoding = 'utf8'
-    if (chunk)
-      this.write(chunk, encoding)
-    if (cb)
-      this.once('end', cb)
-    this[EOF] = true
-    this.writable = false
-
-    // if we haven't written anything, then go ahead and emit,
-    // even if we're not reading.
-    // we'll re-emit if a new 'end' listener is added anyway.
-    // This makes MP more suitable to write-only use cases.
-    if (this.flowing || !this[PAUSED])
-      this[MAYBE_EMIT_END]()
-    return this
-  }
-
-  // don't let the internal resume be overwritten
-  [RESUME] () {
-    if (this[DESTROYED])
-      return
-
-    this[PAUSED] = false
-    this[FLOWING] = true
-    this.emit('resume')
-    if (this.buffer.length)
-      this[FLUSH]()
-    else if (this[EOF])
-      this[MAYBE_EMIT_END]()
-    else
-      this.emit('drain')
-  }
-
-  resume () {
-    return this[RESUME]()
-  }
-
-  pause () {
-    this[FLOWING] = false
-    this[PAUSED] = true
-  }
-
-  get destroyed () {
-    return this[DESTROYED]
-  }
-
-  get flowing () {
-    return this[FLOWING]
-  }
-
-  get paused () {
-    return this[PAUSED]
-  }
-
-  [BUFFERPUSH] (chunk) {
-    if (this[OBJECTMODE])
-      this[BUFFERLENGTH] += 1
-    else
-      this[BUFFERLENGTH] += chunk.length
-    this.buffer.push(chunk)
-  }
-
-  [BUFFERSHIFT] () {
-    if (this.buffer.length) {
-      if (this[OBJECTMODE])
-        this[BUFFERLENGTH] -= 1
-      else
-        this[BUFFERLENGTH] -= this.buffer[0].length
-    }
-    return this.buffer.shift()
-  }
-
-  [FLUSH] (noDrain) {
-    do {} while (this[FLUSHCHUNK](this[BUFFERSHIFT]()))
-
-    if (!noDrain && !this.buffer.length && !this[EOF])
-      this.emit('drain')
-  }
-
-  [FLUSHCHUNK] (chunk) {
-    return chunk ? (this.emit('data', chunk), this.flowing) : false
-  }
-
-  pipe (dest, opts) {
-    if (this[DESTROYED])
-      return
-
-    const ended = this[EMITTED_END]
-    opts = opts || {}
-    if (dest === proc.stdout || dest === proc.stderr)
-      opts.end = false
-    else
-      opts.end = opts.end !== false
-    opts.proxyErrors = !!opts.proxyErrors
-
-    // piping an ended stream ends immediately
-    if (ended) {
-      if (opts.end)
-        dest.end()
-    } else {
-      this.pipes.push(!opts.proxyErrors ? new Pipe(this, dest, opts)
-        : new PipeProxyErrors(this, dest, opts))
-      if (this[ASYNC])
-        defer(() => this[RESUME]())
-      else
-        this[RESUME]()
-    }
-
-    return dest
-  }
-
-  unpipe (dest) {
-    const p = this.pipes.find(p => p.dest === dest)
-    if (p) {
-      this.pipes.splice(this.pipes.indexOf(p), 1)
-      p.unpipe()
-    }
-  }
-
-  addListener (ev, fn) {
-    return this.on(ev, fn)
-  }
-
-  on (ev, fn) {
-    const ret = super.on(ev, fn)
-    if (ev === 'data' && !this.pipes.length && !this.flowing)
-      this[RESUME]()
-    else if (ev === 'readable' && this[BUFFERLENGTH] !== 0)
-      super.emit('readable')
-    else if (isEndish(ev) && this[EMITTED_END]) {
-      super.emit(ev)
-      this.removeAllListeners(ev)
-    } else if (ev === 'error' && this[EMITTED_ERROR]) {
-      if (this[ASYNC])
-        defer(() => fn.call(this, this[EMITTED_ERROR]))
-      else
-        fn.call(this, this[EMITTED_ERROR])
-    }
-    return ret
-  }
-
-  get emittedEnd () {
-    return this[EMITTED_END]
-  }
-
-  [MAYBE_EMIT_END] () {
-    if (!this[EMITTING_END] &&
-        !this[EMITTED_END] &&
-        !this[DESTROYED] &&
-        this.buffer.length === 0 &&
-        this[EOF]) {
-      this[EMITTING_END] = true
-      this.emit('end')
-      this.emit('prefinish')
-      this.emit('finish')
-      if (this[CLOSED])
-        this.emit('close')
-      this[EMITTING_END] = false
-    }
-  }
-
-  emit (ev, data, ...extra) {
-    // error and close are only events allowed after calling destroy()
-    if (ev !== 'error' && ev !== 'close' && ev !== DESTROYED && this[DESTROYED])
-      return
-    else if (ev === 'data') {
-      return !data ? false
-        : this[ASYNC] ? defer(() => this[EMITDATA](data))
-        : this[EMITDATA](data)
-    } else if (ev === 'end') {
-      return this[EMITEND]()
-    } else if (ev === 'close') {
-      this[CLOSED] = true
-      // don't emit close before 'end' and 'finish'
-      if (!this[EMITTED_END] && !this[DESTROYED])
-        return
-      const ret = super.emit('close')
-      this.removeAllListeners('close')
-      return ret
-    } else if (ev === 'error') {
-      this[EMITTED_ERROR] = data
-      const ret = super.emit('error', data)
-      this[MAYBE_EMIT_END]()
-      return ret
-    } else if (ev === 'resume') {
-      const ret = super.emit('resume')
-      this[MAYBE_EMIT_END]()
-      return ret
-    } else if (ev === 'finish' || ev === 'prefinish') {
-      const ret = super.emit(ev)
-      this.removeAllListeners(ev)
-      return ret
-    }
-
-    // Some other unknown event
-    const ret = super.emit(ev, data, ...extra)
-    this[MAYBE_EMIT_END]()
-    return ret
-  }
-
-  [EMITDATA] (data) {
-    for (const p of this.pipes) {
-      if (p.dest.write(data) === false)
-        this.pause()
-    }
-    const ret = super.emit('data', data)
-    this[MAYBE_EMIT_END]()
-    return ret
-  }
-
-  [EMITEND] () {
-    if (this[EMITTED_END])
-      return
-
-    this[EMITTED_END] = true
-    this.readable = false
-    if (this[ASYNC])
-      defer(() => this[EMITEND2]())
-    else
-      this[EMITEND2]()
-  }
-
-  [EMITEND2] () {
-    if (this[DECODER]) {
-      const data = this[DECODER].end()
-      if (data) {
-        for (const p of this.pipes) {
-          p.dest.write(data)
-        }
-        super.emit('data', data)
-      }
-    }
-
-    for (const p of this.pipes) {
-      p.end()
-    }
-    const ret = super.emit('end')
-    this.removeAllListeners('end')
-    return ret
-  }
-
-  // const all = await stream.collect()
-  collect () {
-    const buf = []
-    if (!this[OBJECTMODE])
-      buf.dataLength = 0
-    // set the promise first, in case an error is raised
-    // by triggering the flow here.
-    const p = this.promise()
-    this.on('data', c => {
-      buf.push(c)
-      if (!this[OBJECTMODE])
-        buf.dataLength += c.length
-    })
-    return p.then(() => buf)
-  }
-
-  // const data = await stream.concat()
-  concat () {
-    return this[OBJECTMODE]
-      ? Promise.reject(new Error('cannot concat in objectMode'))
-      : this.collect().then(buf =>
-          this[OBJECTMODE]
-            ? Promise.reject(new Error('cannot concat in objectMode'))
-            : this[ENCODING] ? buf.join('') : Buffer.concat(buf, buf.dataLength))
-  }
-
-  // stream.promise().then(() => done, er => emitted error)
-  promise () {
-    return new Promise((resolve, reject) => {
-      this.on(DESTROYED, () => reject(new Error('stream destroyed')))
-      this.on('error', er => reject(er))
-      this.on('end', () => resolve())
-    })
-  }
-
-  // for await (let chunk of stream)
-  [ASYNCITERATOR] () {
-    const next = () => {
-      const res = this.read()
-      if (res !== null)
-        return Promise.resolve({ done: false, value: res })
-
-      if (this[EOF])
-        return Promise.resolve({ done: true })
-
-      let resolve = null
-      let reject = null
-      const onerr = er => {
-        this.removeListener('data', ondata)
-        this.removeListener('end', onend)
-        reject(er)
-      }
-      const ondata = value => {
-        this.removeListener('error', onerr)
-        this.removeListener('end', onend)
-        this.pause()
-        resolve({ value: value, done: !!this[EOF] })
-      }
-      const onend = () => {
-        this.removeListener('error', onerr)
-        this.removeListener('data', ondata)
-        resolve({ done: true })
-      }
-      const ondestroy = () => onerr(new Error('stream destroyed'))
-      return new Promise((res, rej) => {
-        reject = rej
-        resolve = res
-        this.once(DESTROYED, ondestroy)
-        this.once('error', onerr)
-        this.once('end', onend)
-        this.once('data', ondata)
-      })
-    }
-
-    return { next }
-  }
-
-  // for (let chunk of stream)
-  [ITERATOR] () {
-    const next = () => {
-      const value = this.read()
-      const done = value === null
-      return { value, done }
-    }
-    return { next }
-  }
-
-  destroy (er) {
-    if (this[DESTROYED]) {
-      if (er)
-        this.emit('error', er)
-      else
-        this.emit(DESTROYED)
-      return this
-    }
-
-    this[DESTROYED] = true
-
-    // throw away all buffered data, it's never coming out
-    this.buffer.length = 0
-    this[BUFFERLENGTH] = 0
-
-    if (typeof this.close === 'function' && !this[CLOSED])
-      this.close()
-
-    if (er)
-      this.emit('error', er)
-    else // if no error to emit, still reject pending promises
-      this.emit(DESTROYED)
-
-    return this
-  }
-
-  static isStream (s) {
-    return !!s && (s instanceof Minipass || s instanceof Stream ||
-      s instanceof EE && (
-        typeof s.pipe === 'function' || // readable
-        (typeof s.write === 'function' && typeof s.end === 'function') // writable
-      ))
-  }
-}
-
-
-/***/ }),
-
-/***/ 8759:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-const proc =
-  typeof process === 'object' && process
-    ? process
-    : {
-        stdout: null,
-        stderr: null,
-      }
-const EE = __nccwpck_require__(2361)
-const Stream = __nccwpck_require__(2781)
-const stringdecoder = __nccwpck_require__(1576)
-const SD = stringdecoder.StringDecoder
-
-const EOF = Symbol('EOF')
-const MAYBE_EMIT_END = Symbol('maybeEmitEnd')
-const EMITTED_END = Symbol('emittedEnd')
-const EMITTING_END = Symbol('emittingEnd')
-const EMITTED_ERROR = Symbol('emittedError')
-const CLOSED = Symbol('closed')
-const READ = Symbol('read')
-const FLUSH = Symbol('flush')
-const FLUSHCHUNK = Symbol('flushChunk')
-const ENCODING = Symbol('encoding')
-const DECODER = Symbol('decoder')
-const FLOWING = Symbol('flowing')
-const PAUSED = Symbol('paused')
-const RESUME = Symbol('resume')
-const BUFFER = Symbol('buffer')
-const PIPES = Symbol('pipes')
-const BUFFERLENGTH = Symbol('bufferLength')
-const BUFFERPUSH = Symbol('bufferPush')
-const BUFFERSHIFT = Symbol('bufferShift')
-const OBJECTMODE = Symbol('objectMode')
-// internal event when stream is destroyed
-const DESTROYED = Symbol('destroyed')
-// internal event when stream has an error
-const ERROR = Symbol('error')
-const EMITDATA = Symbol('emitData')
-const EMITEND = Symbol('emitEnd')
-const EMITEND2 = Symbol('emitEnd2')
-const ASYNC = Symbol('async')
-const ABORT = Symbol('abort')
-const ABORTED = Symbol('aborted')
-const SIGNAL = Symbol('signal')
-
-const defer = fn => Promise.resolve().then(fn)
-
-// TODO remove when Node v8 support drops
-const doIter = global._MP_NO_ITERATOR_SYMBOLS_ !== '1'
-const ASYNCITERATOR =
-  (doIter && Symbol.asyncIterator) || Symbol('asyncIterator not implemented')
-const ITERATOR =
-  (doIter && Symbol.iterator) || Symbol('iterator not implemented')
-
-// events that mean 'the stream is over'
-// these are treated specially, and re-emitted
-// if they are listened for after emitting.
-const isEndish = ev => ev === 'end' || ev === 'finish' || ev === 'prefinish'
-
-const isArrayBuffer = b =>
-  b instanceof ArrayBuffer ||
-  (typeof b === 'object' &&
-    b.constructor &&
-    b.constructor.name === 'ArrayBuffer' &&
-    b.byteLength >= 0)
-
-const isArrayBufferView = b => !Buffer.isBuffer(b) && ArrayBuffer.isView(b)
-
-class Pipe {
-  constructor(src, dest, opts) {
-    this.src = src
-    this.dest = dest
-    this.opts = opts
-    this.ondrain = () => src[RESUME]()
-    dest.on('drain', this.ondrain)
-  }
-  unpipe() {
-    this.dest.removeListener('drain', this.ondrain)
-  }
-  // istanbul ignore next - only here for the prototype
-  proxyErrors() {}
-  end() {
-    this.unpipe()
-    if (this.opts.end) this.dest.end()
-  }
-}
-
-class PipeProxyErrors extends Pipe {
-  unpipe() {
-    this.src.removeListener('error', this.proxyErrors)
-    super.unpipe()
-  }
-  constructor(src, dest, opts) {
-    super(src, dest, opts)
-    this.proxyErrors = er => dest.emit('error', er)
-    src.on('error', this.proxyErrors)
-  }
-}
-
-class Minipass extends Stream {
-  constructor(options) {
-    super()
-    this[FLOWING] = false
-    // whether we're explicitly paused
-    this[PAUSED] = false
-    this[PIPES] = []
-    this[BUFFER] = []
-    this[OBJECTMODE] = (options && options.objectMode) || false
-    if (this[OBJECTMODE]) this[ENCODING] = null
-    else this[ENCODING] = (options && options.encoding) || null
-    if (this[ENCODING] === 'buffer') this[ENCODING] = null
-    this[ASYNC] = (options && !!options.async) || false
-    this[DECODER] = this[ENCODING] ? new SD(this[ENCODING]) : null
-    this[EOF] = false
-    this[EMITTED_END] = false
-    this[EMITTING_END] = false
-    this[CLOSED] = false
-    this[EMITTED_ERROR] = null
-    this.writable = true
-    this.readable = true
-    this[BUFFERLENGTH] = 0
-    this[DESTROYED] = false
-    if (options && options.debugExposeBuffer === true) {
-      Object.defineProperty(this, 'buffer', { get: () => this[BUFFER] })
-    }
-    if (options && options.debugExposePipes === true) {
-      Object.defineProperty(this, 'pipes', { get: () => this[PIPES] })
-    }
-    this[SIGNAL] = options && options.signal
-    this[ABORTED] = false
-    if (this[SIGNAL]) {
-      this[SIGNAL].addEventListener('abort', () => this[ABORT]())
-      if (this[SIGNAL].aborted) {
-        this[ABORT]()
-      }
-    }
-  }
-
-  get bufferLength() {
-    return this[BUFFERLENGTH]
-  }
-
-  get encoding() {
-    return this[ENCODING]
-  }
-  set encoding(enc) {
-    if (this[OBJECTMODE]) throw new Error('cannot set encoding in objectMode')
-
-    if (
-      this[ENCODING] &&
-      enc !== this[ENCODING] &&
-      ((this[DECODER] && this[DECODER].lastNeed) || this[BUFFERLENGTH])
-    )
-      throw new Error('cannot change encoding')
-
-    if (this[ENCODING] !== enc) {
-      this[DECODER] = enc ? new SD(enc) : null
-      if (this[BUFFER].length)
-        this[BUFFER] = this[BUFFER].map(chunk => this[DECODER].write(chunk))
-    }
-
-    this[ENCODING] = enc
-  }
-
-  setEncoding(enc) {
-    this.encoding = enc
-  }
-
-  get objectMode() {
-    return this[OBJECTMODE]
-  }
-  set objectMode(om) {
-    this[OBJECTMODE] = this[OBJECTMODE] || !!om
-  }
-
-  get ['async']() {
-    return this[ASYNC]
-  }
-  set ['async'](a) {
-    this[ASYNC] = this[ASYNC] || !!a
-  }
-
-  // drop everything and get out of the flow completely
-  [ABORT]() {
-    this[ABORTED] = true
-    this.emit('abort', this[SIGNAL].reason)
-    this.destroy(this[SIGNAL].reason)
-  }
-
-  get aborted() {
-    return this[ABORTED]
-  }
-  set aborted(_) {}
-
-  write(chunk, encoding, cb) {
-    if (this[ABORTED]) return false
-    if (this[EOF]) throw new Error('write after end')
-
-    if (this[DESTROYED]) {
-      this.emit(
-        'error',
-        Object.assign(
-          new Error('Cannot call write after a stream was destroyed'),
-          { code: 'ERR_STREAM_DESTROYED' }
-        )
-      )
-      return true
-    }
-
-    if (typeof encoding === 'function') (cb = encoding), (encoding = 'utf8')
-
-    if (!encoding) encoding = 'utf8'
-
-    const fn = this[ASYNC] ? defer : f => f()
-
-    // convert array buffers and typed array views into buffers
-    // at some point in the future, we may want to do the opposite!
-    // leave strings and buffers as-is
-    // anything else switches us into object mode
-    if (!this[OBJECTMODE] && !Buffer.isBuffer(chunk)) {
-      if (isArrayBufferView(chunk))
-        chunk = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
-      else if (isArrayBuffer(chunk)) chunk = Buffer.from(chunk)
-      else if (typeof chunk !== 'string')
-        // use the setter so we throw if we have encoding set
-        this.objectMode = true
-    }
-
-    // handle object mode up front, since it's simpler
-    // this yields better performance, fewer checks later.
-    if (this[OBJECTMODE]) {
-      /* istanbul ignore if - maybe impossible? */
-      if (this.flowing && this[BUFFERLENGTH] !== 0) this[FLUSH](true)
-
-      if (this.flowing) this.emit('data', chunk)
-      else this[BUFFERPUSH](chunk)
-
-      if (this[BUFFERLENGTH] !== 0) this.emit('readable')
-
-      if (cb) fn(cb)
-
-      return this.flowing
-    }
-
-    // at this point the chunk is a buffer or string
-    // don't buffer it up or send it to the decoder
-    if (!chunk.length) {
-      if (this[BUFFERLENGTH] !== 0) this.emit('readable')
-      if (cb) fn(cb)
-      return this.flowing
-    }
-
-    // fast-path writing strings of same encoding to a stream with
-    // an empty buffer, skipping the buffer/decoder dance
-    if (
-      typeof chunk === 'string' &&
-      // unless it is a string already ready for us to use
-      !(encoding === this[ENCODING] && !this[DECODER].lastNeed)
-    ) {
-      chunk = Buffer.from(chunk, encoding)
-    }
-
-    if (Buffer.isBuffer(chunk) && this[ENCODING])
-      chunk = this[DECODER].write(chunk)
-
-    // Note: flushing CAN potentially switch us into not-flowing mode
-    if (this.flowing && this[BUFFERLENGTH] !== 0) this[FLUSH](true)
-
-    if (this.flowing) this.emit('data', chunk)
-    else this[BUFFERPUSH](chunk)
-
-    if (this[BUFFERLENGTH] !== 0) this.emit('readable')
-
-    if (cb) fn(cb)
-
-    return this.flowing
-  }
-
-  read(n) {
-    if (this[DESTROYED]) return null
-
-    if (this[BUFFERLENGTH] === 0 || n === 0 || n > this[BUFFERLENGTH]) {
-      this[MAYBE_EMIT_END]()
-      return null
-    }
-
-    if (this[OBJECTMODE]) n = null
-
-    if (this[BUFFER].length > 1 && !this[OBJECTMODE]) {
-      if (this.encoding) this[BUFFER] = [this[BUFFER].join('')]
-      else this[BUFFER] = [Buffer.concat(this[BUFFER], this[BUFFERLENGTH])]
-    }
-
-    const ret = this[READ](n || null, this[BUFFER][0])
-    this[MAYBE_EMIT_END]()
-    return ret
-  }
-
-  [READ](n, chunk) {
-    if (n === chunk.length || n === null) this[BUFFERSHIFT]()
-    else {
-      this[BUFFER][0] = chunk.slice(n)
-      chunk = chunk.slice(0, n)
-      this[BUFFERLENGTH] -= n
-    }
-
-    this.emit('data', chunk)
-
-    if (!this[BUFFER].length && !this[EOF]) this.emit('drain')
-
-    return chunk
-  }
-
-  end(chunk, encoding, cb) {
-    if (typeof chunk === 'function') (cb = chunk), (chunk = null)
-    if (typeof encoding === 'function') (cb = encoding), (encoding = 'utf8')
-    if (chunk) this.write(chunk, encoding)
-    if (cb) this.once('end', cb)
-    this[EOF] = true
-    this.writable = false
-
-    // if we haven't written anything, then go ahead and emit,
-    // even if we're not reading.
-    // we'll re-emit if a new 'end' listener is added anyway.
-    // This makes MP more suitable to write-only use cases.
-    if (this.flowing || !this[PAUSED]) this[MAYBE_EMIT_END]()
-    return this
-  }
-
-  // don't let the internal resume be overwritten
-  [RESUME]() {
-    if (this[DESTROYED]) return
-
-    this[PAUSED] = false
-    this[FLOWING] = true
-    this.emit('resume')
-    if (this[BUFFER].length) this[FLUSH]()
-    else if (this[EOF]) this[MAYBE_EMIT_END]()
-    else this.emit('drain')
-  }
-
-  resume() {
-    return this[RESUME]()
-  }
-
-  pause() {
-    this[FLOWING] = false
-    this[PAUSED] = true
-  }
-
-  get destroyed() {
-    return this[DESTROYED]
-  }
-
-  get flowing() {
-    return this[FLOWING]
-  }
-
-  get paused() {
-    return this[PAUSED]
-  }
-
-  [BUFFERPUSH](chunk) {
-    if (this[OBJECTMODE]) this[BUFFERLENGTH] += 1
-    else this[BUFFERLENGTH] += chunk.length
-    this[BUFFER].push(chunk)
-  }
-
-  [BUFFERSHIFT]() {
-    if (this[OBJECTMODE]) this[BUFFERLENGTH] -= 1
-    else this[BUFFERLENGTH] -= this[BUFFER][0].length
-    return this[BUFFER].shift()
-  }
-
-  [FLUSH](noDrain) {
-    do {} while (this[FLUSHCHUNK](this[BUFFERSHIFT]()) && this[BUFFER].length)
-
-    if (!noDrain && !this[BUFFER].length && !this[EOF]) this.emit('drain')
-  }
-
-  [FLUSHCHUNK](chunk) {
-    this.emit('data', chunk)
-    return this.flowing
-  }
-
-  pipe(dest, opts) {
-    if (this[DESTROYED]) return
-
-    const ended = this[EMITTED_END]
-    opts = opts || {}
-    if (dest === proc.stdout || dest === proc.stderr) opts.end = false
-    else opts.end = opts.end !== false
-    opts.proxyErrors = !!opts.proxyErrors
-
-    // piping an ended stream ends immediately
-    if (ended) {
-      if (opts.end) dest.end()
-    } else {
-      this[PIPES].push(
-        !opts.proxyErrors
-          ? new Pipe(this, dest, opts)
-          : new PipeProxyErrors(this, dest, opts)
-      )
-      if (this[ASYNC]) defer(() => this[RESUME]())
-      else this[RESUME]()
-    }
-
-    return dest
-  }
-
-  unpipe(dest) {
-    const p = this[PIPES].find(p => p.dest === dest)
-    if (p) {
-      this[PIPES].splice(this[PIPES].indexOf(p), 1)
-      p.unpipe()
-    }
-  }
-
-  addListener(ev, fn) {
-    return this.on(ev, fn)
-  }
-
-  on(ev, fn) {
-    const ret = super.on(ev, fn)
-    if (ev === 'data' && !this[PIPES].length && !this.flowing) this[RESUME]()
-    else if (ev === 'readable' && this[BUFFERLENGTH] !== 0)
-      super.emit('readable')
-    else if (isEndish(ev) && this[EMITTED_END]) {
-      super.emit(ev)
-      this.removeAllListeners(ev)
-    } else if (ev === 'error' && this[EMITTED_ERROR]) {
-      if (this[ASYNC]) defer(() => fn.call(this, this[EMITTED_ERROR]))
-      else fn.call(this, this[EMITTED_ERROR])
-    }
-    return ret
-  }
-
-  get emittedEnd() {
-    return this[EMITTED_END]
-  }
-
-  [MAYBE_EMIT_END]() {
-    if (
-      !this[EMITTING_END] &&
-      !this[EMITTED_END] &&
-      !this[DESTROYED] &&
-      this[BUFFER].length === 0 &&
-      this[EOF]
-    ) {
-      this[EMITTING_END] = true
-      this.emit('end')
-      this.emit('prefinish')
-      this.emit('finish')
-      if (this[CLOSED]) this.emit('close')
-      this[EMITTING_END] = false
-    }
-  }
-
-  emit(ev, data, ...extra) {
-    // error and close are only events allowed after calling destroy()
-    if (ev !== 'error' && ev !== 'close' && ev !== DESTROYED && this[DESTROYED])
-      return
-    else if (ev === 'data') {
-      return !this[OBJECTMODE] && !data
-        ? false
-        : this[ASYNC]
-        ? defer(() => this[EMITDATA](data))
-        : this[EMITDATA](data)
-    } else if (ev === 'end') {
-      return this[EMITEND]()
-    } else if (ev === 'close') {
-      this[CLOSED] = true
-      // don't emit close before 'end' and 'finish'
-      if (!this[EMITTED_END] && !this[DESTROYED]) return
-      const ret = super.emit('close')
-      this.removeAllListeners('close')
-      return ret
-    } else if (ev === 'error') {
-      this[EMITTED_ERROR] = data
-      super.emit(ERROR, data)
-      const ret =
-        !this[SIGNAL] || this.listeners('error').length
-          ? super.emit('error', data)
-          : false
-      this[MAYBE_EMIT_END]()
-      return ret
-    } else if (ev === 'resume') {
-      const ret = super.emit('resume')
-      this[MAYBE_EMIT_END]()
-      return ret
-    } else if (ev === 'finish' || ev === 'prefinish') {
-      const ret = super.emit(ev)
-      this.removeAllListeners(ev)
-      return ret
-    }
-
-    // Some other unknown event
-    const ret = super.emit(ev, data, ...extra)
-    this[MAYBE_EMIT_END]()
-    return ret
-  }
-
-  [EMITDATA](data) {
-    for (const p of this[PIPES]) {
-      if (p.dest.write(data) === false) this.pause()
-    }
-    const ret = super.emit('data', data)
-    this[MAYBE_EMIT_END]()
-    return ret
-  }
-
-  [EMITEND]() {
-    if (this[EMITTED_END]) return
-
-    this[EMITTED_END] = true
-    this.readable = false
-    if (this[ASYNC]) defer(() => this[EMITEND2]())
-    else this[EMITEND2]()
-  }
-
-  [EMITEND2]() {
-    if (this[DECODER]) {
-      const data = this[DECODER].end()
-      if (data) {
-        for (const p of this[PIPES]) {
-          p.dest.write(data)
-        }
-        super.emit('data', data)
-      }
-    }
-
-    for (const p of this[PIPES]) {
-      p.end()
-    }
-    const ret = super.emit('end')
-    this.removeAllListeners('end')
-    return ret
-  }
-
-  // const all = await stream.collect()
-  collect() {
-    const buf = []
-    if (!this[OBJECTMODE]) buf.dataLength = 0
-    // set the promise first, in case an error is raised
-    // by triggering the flow here.
-    const p = this.promise()
-    this.on('data', c => {
-      buf.push(c)
-      if (!this[OBJECTMODE]) buf.dataLength += c.length
-    })
-    return p.then(() => buf)
-  }
-
-  // const data = await stream.concat()
-  concat() {
-    return this[OBJECTMODE]
-      ? Promise.reject(new Error('cannot concat in objectMode'))
-      : this.collect().then(buf =>
-          this[OBJECTMODE]
-            ? Promise.reject(new Error('cannot concat in objectMode'))
-            : this[ENCODING]
-            ? buf.join('')
-            : Buffer.concat(buf, buf.dataLength)
-        )
-  }
-
-  // stream.promise().then(() => done, er => emitted error)
-  promise() {
-    return new Promise((resolve, reject) => {
-      this.on(DESTROYED, () => reject(new Error('stream destroyed')))
-      this.on('error', er => reject(er))
-      this.on('end', () => resolve())
-    })
-  }
-
-  // for await (let chunk of stream)
-  [ASYNCITERATOR]() {
-    let stopped = false
-    const stop = () => {
-      this.pause()
-      stopped = true
-      return Promise.resolve({ done: true })
-    }
-    const next = () => {
-      if (stopped) return stop()
-      const res = this.read()
-      if (res !== null) return Promise.resolve({ done: false, value: res })
-
-      if (this[EOF]) return stop()
-
-      let resolve = null
-      let reject = null
-      const onerr = er => {
-        this.removeListener('data', ondata)
-        this.removeListener('end', onend)
-        this.removeListener(DESTROYED, ondestroy)
-        stop()
-        reject(er)
-      }
-      const ondata = value => {
-        this.removeListener('error', onerr)
-        this.removeListener('end', onend)
-        this.removeListener(DESTROYED, ondestroy)
-        this.pause()
-        resolve({ value: value, done: !!this[EOF] })
-      }
-      const onend = () => {
-        this.removeListener('error', onerr)
-        this.removeListener('data', ondata)
-        this.removeListener(DESTROYED, ondestroy)
-        stop()
-        resolve({ done: true })
-      }
-      const ondestroy = () => onerr(new Error('stream destroyed'))
-      return new Promise((res, rej) => {
-        reject = rej
-        resolve = res
-        this.once(DESTROYED, ondestroy)
-        this.once('error', onerr)
-        this.once('end', onend)
-        this.once('data', ondata)
-      })
-    }
-
-    return {
-      next,
-      throw: stop,
-      return: stop,
-      [ASYNCITERATOR]() {
-        return this
-      },
-    }
-  }
-
-  // for (let chunk of stream)
-  [ITERATOR]() {
-    let stopped = false
-    const stop = () => {
-      this.pause()
-      this.removeListener(ERROR, stop)
-      this.removeListener(DESTROYED, stop)
-      this.removeListener('end', stop)
-      stopped = true
-      return { done: true }
-    }
-
-    const next = () => {
-      if (stopped) return stop()
-      const value = this.read()
-      return value === null ? stop() : { value }
-    }
-    this.once('end', stop)
-    this.once(ERROR, stop)
-    this.once(DESTROYED, stop)
-
-    return {
-      next,
-      throw: stop,
-      return: stop,
-      [ITERATOR]() {
-        return this
-      },
-    }
-  }
-
-  destroy(er) {
-    if (this[DESTROYED]) {
-      if (er) this.emit('error', er)
-      else this.emit(DESTROYED)
-      return this
-    }
-
-    this[DESTROYED] = true
-
-    // throw away all buffered data, it's never coming out
-    this[BUFFER].length = 0
-    this[BUFFERLENGTH] = 0
-
-    if (typeof this.close === 'function' && !this[CLOSED]) this.close()
-
-    if (er) this.emit('error', er)
-    // if no error to emit, still reject pending promises
-    else this.emit(DESTROYED)
-
-    return this
-  }
-
-  static isStream(s) {
-    return (
-      !!s &&
-      (s instanceof Minipass ||
-        s instanceof Stream ||
-        (s instanceof EE &&
-          // readable
-          (typeof s.pipe === 'function' ||
-            // writable
-            (typeof s.write === 'function' && typeof s.end === 'function'))))
-    )
-  }
-}
-
-exports.Minipass = Minipass
-
-
-/***/ }),
-
-/***/ 9189:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-// Update with any zlib constants that are added or changed in the future.
-// Node v6 didn't export this, so we just hard code the version and rely
-// on all the other hard-coded values from zlib v4736.  When node v6
-// support drops, we can just export the realZlibConstants object.
-const realZlibConstants = (__nccwpck_require__(9796).constants) ||
-  /* istanbul ignore next */ { ZLIB_VERNUM: 4736 }
-
-module.exports = Object.freeze(Object.assign(Object.create(null), {
-  Z_NO_FLUSH: 0,
-  Z_PARTIAL_FLUSH: 1,
-  Z_SYNC_FLUSH: 2,
-  Z_FULL_FLUSH: 3,
-  Z_FINISH: 4,
-  Z_BLOCK: 5,
-  Z_OK: 0,
-  Z_STREAM_END: 1,
-  Z_NEED_DICT: 2,
-  Z_ERRNO: -1,
-  Z_STREAM_ERROR: -2,
-  Z_DATA_ERROR: -3,
-  Z_MEM_ERROR: -4,
-  Z_BUF_ERROR: -5,
-  Z_VERSION_ERROR: -6,
-  Z_NO_COMPRESSION: 0,
-  Z_BEST_SPEED: 1,
-  Z_BEST_COMPRESSION: 9,
-  Z_DEFAULT_COMPRESSION: -1,
-  Z_FILTERED: 1,
-  Z_HUFFMAN_ONLY: 2,
-  Z_RLE: 3,
-  Z_FIXED: 4,
-  Z_DEFAULT_STRATEGY: 0,
-  DEFLATE: 1,
-  INFLATE: 2,
-  GZIP: 3,
-  GUNZIP: 4,
-  DEFLATERAW: 5,
-  INFLATERAW: 6,
-  UNZIP: 7,
-  BROTLI_DECODE: 8,
-  BROTLI_ENCODE: 9,
-  Z_MIN_WINDOWBITS: 8,
-  Z_MAX_WINDOWBITS: 15,
-  Z_DEFAULT_WINDOWBITS: 15,
-  Z_MIN_CHUNK: 64,
-  Z_MAX_CHUNK: Infinity,
-  Z_DEFAULT_CHUNK: 16384,
-  Z_MIN_MEMLEVEL: 1,
-  Z_MAX_MEMLEVEL: 9,
-  Z_DEFAULT_MEMLEVEL: 8,
-  Z_MIN_LEVEL: -1,
-  Z_MAX_LEVEL: 9,
-  Z_DEFAULT_LEVEL: -1,
-  BROTLI_OPERATION_PROCESS: 0,
-  BROTLI_OPERATION_FLUSH: 1,
-  BROTLI_OPERATION_FINISH: 2,
-  BROTLI_OPERATION_EMIT_METADATA: 3,
-  BROTLI_MODE_GENERIC: 0,
-  BROTLI_MODE_TEXT: 1,
-  BROTLI_MODE_FONT: 2,
-  BROTLI_DEFAULT_MODE: 0,
-  BROTLI_MIN_QUALITY: 0,
-  BROTLI_MAX_QUALITY: 11,
-  BROTLI_DEFAULT_QUALITY: 11,
-  BROTLI_MIN_WINDOW_BITS: 10,
-  BROTLI_MAX_WINDOW_BITS: 24,
-  BROTLI_LARGE_MAX_WINDOW_BITS: 30,
-  BROTLI_DEFAULT_WINDOW: 22,
-  BROTLI_MIN_INPUT_BLOCK_BITS: 16,
-  BROTLI_MAX_INPUT_BLOCK_BITS: 24,
-  BROTLI_PARAM_MODE: 0,
-  BROTLI_PARAM_QUALITY: 1,
-  BROTLI_PARAM_LGWIN: 2,
-  BROTLI_PARAM_LGBLOCK: 3,
-  BROTLI_PARAM_DISABLE_LITERAL_CONTEXT_MODELING: 4,
-  BROTLI_PARAM_SIZE_HINT: 5,
-  BROTLI_PARAM_LARGE_WINDOW: 6,
-  BROTLI_PARAM_NPOSTFIX: 7,
-  BROTLI_PARAM_NDIRECT: 8,
-  BROTLI_DECODER_RESULT_ERROR: 0,
-  BROTLI_DECODER_RESULT_SUCCESS: 1,
-  BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT: 2,
-  BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT: 3,
-  BROTLI_DECODER_PARAM_DISABLE_RING_BUFFER_REALLOCATION: 0,
-  BROTLI_DECODER_PARAM_LARGE_WINDOW: 1,
-  BROTLI_DECODER_NO_ERROR: 0,
-  BROTLI_DECODER_SUCCESS: 1,
-  BROTLI_DECODER_NEEDS_MORE_INPUT: 2,
-  BROTLI_DECODER_NEEDS_MORE_OUTPUT: 3,
-  BROTLI_DECODER_ERROR_FORMAT_EXUBERANT_NIBBLE: -1,
-  BROTLI_DECODER_ERROR_FORMAT_RESERVED: -2,
-  BROTLI_DECODER_ERROR_FORMAT_EXUBERANT_META_NIBBLE: -3,
-  BROTLI_DECODER_ERROR_FORMAT_SIMPLE_HUFFMAN_ALPHABET: -4,
-  BROTLI_DECODER_ERROR_FORMAT_SIMPLE_HUFFMAN_SAME: -5,
-  BROTLI_DECODER_ERROR_FORMAT_CL_SPACE: -6,
-  BROTLI_DECODER_ERROR_FORMAT_HUFFMAN_SPACE: -7,
-  BROTLI_DECODER_ERROR_FORMAT_CONTEXT_MAP_REPEAT: -8,
-  BROTLI_DECODER_ERROR_FORMAT_BLOCK_LENGTH_1: -9,
-  BROTLI_DECODER_ERROR_FORMAT_BLOCK_LENGTH_2: -10,
-  BROTLI_DECODER_ERROR_FORMAT_TRANSFORM: -11,
-  BROTLI_DECODER_ERROR_FORMAT_DICTIONARY: -12,
-  BROTLI_DECODER_ERROR_FORMAT_WINDOW_BITS: -13,
-  BROTLI_DECODER_ERROR_FORMAT_PADDING_1: -14,
-  BROTLI_DECODER_ERROR_FORMAT_PADDING_2: -15,
-  BROTLI_DECODER_ERROR_FORMAT_DISTANCE: -16,
-  BROTLI_DECODER_ERROR_DICTIONARY_NOT_SET: -19,
-  BROTLI_DECODER_ERROR_INVALID_ARGUMENTS: -20,
-  BROTLI_DECODER_ERROR_ALLOC_CONTEXT_MODES: -21,
-  BROTLI_DECODER_ERROR_ALLOC_TREE_GROUPS: -22,
-  BROTLI_DECODER_ERROR_ALLOC_CONTEXT_MAP: -25,
-  BROTLI_DECODER_ERROR_ALLOC_RING_BUFFER_1: -26,
-  BROTLI_DECODER_ERROR_ALLOC_RING_BUFFER_2: -27,
-  BROTLI_DECODER_ERROR_ALLOC_BLOCK_TYPE_TREES: -30,
-  BROTLI_DECODER_ERROR_UNREACHABLE: -31,
-}, realZlibConstants))
-
-
-/***/ }),
-
-/***/ 8925:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-const assert = __nccwpck_require__(9491)
-const Buffer = (__nccwpck_require__(4300).Buffer)
-const realZlib = __nccwpck_require__(9796)
-
-const constants = exports.constants = __nccwpck_require__(9189)
-const Minipass = __nccwpck_require__(6424)
-
-const OriginalBufferConcat = Buffer.concat
-
-const _superWrite = Symbol('_superWrite')
-class ZlibError extends Error {
-  constructor (err) {
-    super('zlib: ' + err.message)
-    this.code = err.code
-    this.errno = err.errno
-    /* istanbul ignore if */
-    if (!this.code)
-      this.code = 'ZLIB_ERROR'
-
-    this.message = 'zlib: ' + err.message
-    Error.captureStackTrace(this, this.constructor)
-  }
-
-  get name () {
-    return 'ZlibError'
-  }
-}
-
-// the Zlib class they all inherit from
-// This thing manages the queue of requests, and returns
-// true or false if there is anything in the queue when
-// you call the .write() method.
-const _opts = Symbol('opts')
-const _flushFlag = Symbol('flushFlag')
-const _finishFlushFlag = Symbol('finishFlushFlag')
-const _fullFlushFlag = Symbol('fullFlushFlag')
-const _handle = Symbol('handle')
-const _onError = Symbol('onError')
-const _sawError = Symbol('sawError')
-const _level = Symbol('level')
-const _strategy = Symbol('strategy')
-const _ended = Symbol('ended')
-const _defaultFullFlush = Symbol('_defaultFullFlush')
-
-class ZlibBase extends Minipass {
-  constructor (opts, mode) {
-    if (!opts || typeof opts !== 'object')
-      throw new TypeError('invalid options for ZlibBase constructor')
-
-    super(opts)
-    this[_sawError] = false
-    this[_ended] = false
-    this[_opts] = opts
-
-    this[_flushFlag] = opts.flush
-    this[_finishFlushFlag] = opts.finishFlush
-    // this will throw if any options are invalid for the class selected
-    try {
-      this[_handle] = new realZlib[mode](opts)
-    } catch (er) {
-      // make sure that all errors get decorated properly
-      throw new ZlibError(er)
-    }
-
-    this[_onError] = (err) => {
-      // no sense raising multiple errors, since we abort on the first one.
-      if (this[_sawError])
-        return
-
-      this[_sawError] = true
-
-      // there is no way to cleanly recover.
-      // continuing only obscures problems.
-      this.close()
-      this.emit('error', err)
-    }
-
-    this[_handle].on('error', er => this[_onError](new ZlibError(er)))
-    this.once('end', () => this.close)
-  }
-
-  close () {
-    if (this[_handle]) {
-      this[_handle].close()
-      this[_handle] = null
-      this.emit('close')
-    }
-  }
-
-  reset () {
-    if (!this[_sawError]) {
-      assert(this[_handle], 'zlib binding closed')
-      return this[_handle].reset()
-    }
-  }
-
-  flush (flushFlag) {
-    if (this.ended)
-      return
-
-    if (typeof flushFlag !== 'number')
-      flushFlag = this[_fullFlushFlag]
-    this.write(Object.assign(Buffer.alloc(0), { [_flushFlag]: flushFlag }))
-  }
-
-  end (chunk, encoding, cb) {
-    if (chunk)
-      this.write(chunk, encoding)
-    this.flush(this[_finishFlushFlag])
-    this[_ended] = true
-    return super.end(null, null, cb)
-  }
-
-  get ended () {
-    return this[_ended]
-  }
-
-  write (chunk, encoding, cb) {
-    // process the chunk using the sync process
-    // then super.write() all the outputted chunks
-    if (typeof encoding === 'function')
-      cb = encoding, encoding = 'utf8'
-
-    if (typeof chunk === 'string')
-      chunk = Buffer.from(chunk, encoding)
-
-    if (this[_sawError])
-      return
-    assert(this[_handle], 'zlib binding closed')
-
-    // _processChunk tries to .close() the native handle after it's done, so we
-    // intercept that by temporarily making it a no-op.
-    const nativeHandle = this[_handle]._handle
-    const originalNativeClose = nativeHandle.close
-    nativeHandle.close = () => {}
-    const originalClose = this[_handle].close
-    this[_handle].close = () => {}
-    // It also calls `Buffer.concat()` at the end, which may be convenient
-    // for some, but which we are not interested in as it slows us down.
-    Buffer.concat = (args) => args
-    let result
-    try {
-      const flushFlag = typeof chunk[_flushFlag] === 'number'
-        ? chunk[_flushFlag] : this[_flushFlag]
-      result = this[_handle]._processChunk(chunk, flushFlag)
-      // if we don't throw, reset it back how it was
-      Buffer.concat = OriginalBufferConcat
-    } catch (err) {
-      // or if we do, put Buffer.concat() back before we emit error
-      // Error events call into user code, which may call Buffer.concat()
-      Buffer.concat = OriginalBufferConcat
-      this[_onError](new ZlibError(err))
-    } finally {
-      if (this[_handle]) {
-        // Core zlib resets `_handle` to null after attempting to close the
-        // native handle. Our no-op handler prevented actual closure, but we
-        // need to restore the `._handle` property.
-        this[_handle]._handle = nativeHandle
-        nativeHandle.close = originalNativeClose
-        this[_handle].close = originalClose
-        // `_processChunk()` adds an 'error' listener. If we don't remove it
-        // after each call, these handlers start piling up.
-        this[_handle].removeAllListeners('error')
-        // make sure OUR error listener is still attached tho
-      }
-    }
-
-    if (this[_handle])
-      this[_handle].on('error', er => this[_onError](new ZlibError(er)))
-
-    let writeReturn
-    if (result) {
-      if (Array.isArray(result) && result.length > 0) {
-        // The first buffer is always `handle._outBuffer`, which would be
-        // re-used for later invocations; so, we always have to copy that one.
-        writeReturn = this[_superWrite](Buffer.from(result[0]))
-        for (let i = 1; i < result.length; i++) {
-          writeReturn = this[_superWrite](result[i])
-        }
-      } else {
-        writeReturn = this[_superWrite](Buffer.from(result))
-      }
-    }
-
-    if (cb)
-      cb()
-    return writeReturn
-  }
-
-  [_superWrite] (data) {
-    return super.write(data)
-  }
-}
-
-class Zlib extends ZlibBase {
-  constructor (opts, mode) {
-    opts = opts || {}
-
-    opts.flush = opts.flush || constants.Z_NO_FLUSH
-    opts.finishFlush = opts.finishFlush || constants.Z_FINISH
-    super(opts, mode)
-
-    this[_fullFlushFlag] = constants.Z_FULL_FLUSH
-    this[_level] = opts.level
-    this[_strategy] = opts.strategy
-  }
-
-  params (level, strategy) {
-    if (this[_sawError])
-      return
-
-    if (!this[_handle])
-      throw new Error('cannot switch params when binding is closed')
-
-    // no way to test this without also not supporting params at all
-    /* istanbul ignore if */
-    if (!this[_handle].params)
-      throw new Error('not supported in this implementation')
-
-    if (this[_level] !== level || this[_strategy] !== strategy) {
-      this.flush(constants.Z_SYNC_FLUSH)
-      assert(this[_handle], 'zlib binding closed')
-      // .params() calls .flush(), but the latter is always async in the
-      // core zlib. We override .flush() temporarily to intercept that and
-      // flush synchronously.
-      const origFlush = this[_handle].flush
-      this[_handle].flush = (flushFlag, cb) => {
-        this.flush(flushFlag)
-        cb()
-      }
-      try {
-        this[_handle].params(level, strategy)
-      } finally {
-        this[_handle].flush = origFlush
-      }
-      /* istanbul ignore else */
-      if (this[_handle]) {
-        this[_level] = level
-        this[_strategy] = strategy
-      }
-    }
-  }
-}
-
-// minimal 2-byte header
-class Deflate extends Zlib {
-  constructor (opts) {
-    super(opts, 'Deflate')
-  }
-}
-
-class Inflate extends Zlib {
-  constructor (opts) {
-    super(opts, 'Inflate')
-  }
-}
-
-// gzip - bigger header, same deflate compression
-const _portable = Symbol('_portable')
-class Gzip extends Zlib {
-  constructor (opts) {
-    super(opts, 'Gzip')
-    this[_portable] = opts && !!opts.portable
-  }
-
-  [_superWrite] (data) {
-    if (!this[_portable])
-      return super[_superWrite](data)
-
-    // we'll always get the header emitted in one first chunk
-    // overwrite the OS indicator byte with 0xFF
-    this[_portable] = false
-    data[9] = 255
-    return super[_superWrite](data)
-  }
-}
-
-class Gunzip extends Zlib {
-  constructor (opts) {
-    super(opts, 'Gunzip')
-  }
-}
-
-// raw - no header
-class DeflateRaw extends Zlib {
-  constructor (opts) {
-    super(opts, 'DeflateRaw')
-  }
-}
-
-class InflateRaw extends Zlib {
-  constructor (opts) {
-    super(opts, 'InflateRaw')
-  }
-}
-
-// auto-detect header.
-class Unzip extends Zlib {
-  constructor (opts) {
-    super(opts, 'Unzip')
-  }
-}
-
-class Brotli extends ZlibBase {
-  constructor (opts, mode) {
-    opts = opts || {}
-
-    opts.flush = opts.flush || constants.BROTLI_OPERATION_PROCESS
-    opts.finishFlush = opts.finishFlush || constants.BROTLI_OPERATION_FINISH
-
-    super(opts, mode)
-
-    this[_fullFlushFlag] = constants.BROTLI_OPERATION_FLUSH
-  }
-}
-
-class BrotliCompress extends Brotli {
-  constructor (opts) {
-    super(opts, 'BrotliCompress')
-  }
-}
-
-class BrotliDecompress extends Brotli {
-  constructor (opts) {
-    super(opts, 'BrotliDecompress')
-  }
-}
-
-exports.Deflate = Deflate
-exports.Inflate = Inflate
-exports.Gzip = Gzip
-exports.Gunzip = Gunzip
-exports.DeflateRaw = DeflateRaw
-exports.InflateRaw = InflateRaw
-exports.Unzip = Unzip
-/* istanbul ignore else */
-if (typeof realZlib.BrotliCompress === 'function') {
-  exports.BrotliCompress = BrotliCompress
-  exports.BrotliDecompress = BrotliDecompress
-} else {
-  exports.BrotliCompress = exports.BrotliDecompress = class {
-    constructor () {
-      throw new Error('Brotli is not supported in this version of Node.js')
-    }
-  }
-}
-
-
-/***/ }),
-
-/***/ 760:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const optsArg = __nccwpck_require__(8105)
-const pathArg = __nccwpck_require__(6727)
-
-const {mkdirpNative, mkdirpNativeSync} = __nccwpck_require__(9436)
-const {mkdirpManual, mkdirpManualSync} = __nccwpck_require__(8821)
-const {useNative, useNativeSync} = __nccwpck_require__(7871)
-
-
-const mkdirp = (path, opts) => {
-  path = pathArg(path)
-  opts = optsArg(opts)
-  return useNative(opts)
-    ? mkdirpNative(path, opts)
-    : mkdirpManual(path, opts)
-}
-
-const mkdirpSync = (path, opts) => {
-  path = pathArg(path)
-  opts = optsArg(opts)
-  return useNativeSync(opts)
-    ? mkdirpNativeSync(path, opts)
-    : mkdirpManualSync(path, opts)
-}
-
-mkdirp.sync = mkdirpSync
-mkdirp.native = (path, opts) => mkdirpNative(pathArg(path), optsArg(opts))
-mkdirp.manual = (path, opts) => mkdirpManual(pathArg(path), optsArg(opts))
-mkdirp.nativeSync = (path, opts) => mkdirpNativeSync(pathArg(path), optsArg(opts))
-mkdirp.manualSync = (path, opts) => mkdirpManualSync(pathArg(path), optsArg(opts))
-
-module.exports = mkdirp
-
-
-/***/ }),
-
-/***/ 8434:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const {dirname} = __nccwpck_require__(1017)
-
-const findMade = (opts, parent, path = undefined) => {
-  // we never want the 'made' return value to be a root directory
-  if (path === parent)
-    return Promise.resolve()
-
-  return opts.statAsync(parent).then(
-    st => st.isDirectory() ? path : undefined, // will fail later
-    er => er.code === 'ENOENT'
-      ? findMade(opts, dirname(parent), parent)
-      : undefined
-  )
-}
-
-const findMadeSync = (opts, parent, path = undefined) => {
-  if (path === parent)
-    return undefined
-
-  try {
-    return opts.statSync(parent).isDirectory() ? path : undefined
-  } catch (er) {
-    return er.code === 'ENOENT'
-      ? findMadeSync(opts, dirname(parent), parent)
-      : undefined
-  }
-}
-
-module.exports = {findMade, findMadeSync}
-
-
-/***/ }),
-
-/***/ 8821:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const {dirname} = __nccwpck_require__(1017)
-
-const mkdirpManual = (path, opts, made) => {
-  opts.recursive = false
-  const parent = dirname(path)
-  if (parent === path) {
-    return opts.mkdirAsync(path, opts).catch(er => {
-      // swallowed by recursive implementation on posix systems
-      // any other error is a failure
-      if (er.code !== 'EISDIR')
-        throw er
-    })
-  }
-
-  return opts.mkdirAsync(path, opts).then(() => made || path, er => {
-    if (er.code === 'ENOENT')
-      return mkdirpManual(parent, opts)
-        .then(made => mkdirpManual(path, opts, made))
-    if (er.code !== 'EEXIST' && er.code !== 'EROFS')
-      throw er
-    return opts.statAsync(path).then(st => {
-      if (st.isDirectory())
-        return made
-      else
-        throw er
-    }, () => { throw er })
-  })
-}
-
-const mkdirpManualSync = (path, opts, made) => {
-  const parent = dirname(path)
-  opts.recursive = false
-
-  if (parent === path) {
-    try {
-      return opts.mkdirSync(path, opts)
-    } catch (er) {
-      // swallowed by recursive implementation on posix systems
-      // any other error is a failure
-      if (er.code !== 'EISDIR')
-        throw er
-      else
-        return
-    }
-  }
-
-  try {
-    opts.mkdirSync(path, opts)
-    return made || path
-  } catch (er) {
-    if (er.code === 'ENOENT')
-      return mkdirpManualSync(path, opts, mkdirpManualSync(parent, opts, made))
-    if (er.code !== 'EEXIST' && er.code !== 'EROFS')
-      throw er
-    try {
-      if (!opts.statSync(path).isDirectory())
-        throw er
-    } catch (_) {
-      throw er
-    }
-  }
-}
-
-module.exports = {mkdirpManual, mkdirpManualSync}
-
-
-/***/ }),
-
-/***/ 9436:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const {dirname} = __nccwpck_require__(1017)
-const {findMade, findMadeSync} = __nccwpck_require__(8434)
-const {mkdirpManual, mkdirpManualSync} = __nccwpck_require__(8821)
-
-const mkdirpNative = (path, opts) => {
-  opts.recursive = true
-  const parent = dirname(path)
-  if (parent === path)
-    return opts.mkdirAsync(path, opts)
-
-  return findMade(opts, path).then(made =>
-    opts.mkdirAsync(path, opts).then(() => made)
-    .catch(er => {
-      if (er.code === 'ENOENT')
-        return mkdirpManual(path, opts)
-      else
-        throw er
-    }))
-}
-
-const mkdirpNativeSync = (path, opts) => {
-  opts.recursive = true
-  const parent = dirname(path)
-  if (parent === path)
-    return opts.mkdirSync(path, opts)
-
-  const made = findMadeSync(opts, path)
-  try {
-    opts.mkdirSync(path, opts)
-    return made
-  } catch (er) {
-    if (er.code === 'ENOENT')
-      return mkdirpManualSync(path, opts)
-    else
-      throw er
-  }
-}
-
-module.exports = {mkdirpNative, mkdirpNativeSync}
-
-
-/***/ }),
-
-/***/ 8105:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const { promisify } = __nccwpck_require__(3837)
-const fs = __nccwpck_require__(7147)
-const optsArg = opts => {
-  if (!opts)
-    opts = { mode: 0o777, fs }
-  else if (typeof opts === 'object')
-    opts = { mode: 0o777, fs, ...opts }
-  else if (typeof opts === 'number')
-    opts = { mode: opts, fs }
-  else if (typeof opts === 'string')
-    opts = { mode: parseInt(opts, 8), fs }
-  else
-    throw new TypeError('invalid options argument')
-
-  opts.mkdir = opts.mkdir || opts.fs.mkdir || fs.mkdir
-  opts.mkdirAsync = promisify(opts.mkdir)
-  opts.stat = opts.stat || opts.fs.stat || fs.stat
-  opts.statAsync = promisify(opts.stat)
-  opts.statSync = opts.statSync || opts.fs.statSync || fs.statSync
-  opts.mkdirSync = opts.mkdirSync || opts.fs.mkdirSync || fs.mkdirSync
-  return opts
-}
-module.exports = optsArg
-
-
-/***/ }),
-
-/***/ 6727:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const platform = process.env.__TESTING_MKDIRP_PLATFORM__ || process.platform
-const { resolve, parse } = __nccwpck_require__(1017)
-const pathArg = path => {
-  if (/\0/.test(path)) {
-    // simulate same failure that node raises
-    throw Object.assign(
-      new TypeError('path must be a string without null bytes'),
-      {
-        path,
-        code: 'ERR_INVALID_ARG_VALUE',
-      }
-    )
-  }
-
-  path = resolve(path)
-  if (platform === 'win32') {
-    const badWinChars = /[*|"<>?:]/
-    const {root} = parse(path)
-    if (badWinChars.test(path.substr(root.length))) {
-      throw Object.assign(new Error('Illegal characters in path.'), {
-        path,
-        code: 'EINVAL',
-      })
-    }
-  }
-
-  return path
-}
-module.exports = pathArg
-
-
-/***/ }),
-
-/***/ 7871:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const fs = __nccwpck_require__(7147)
-
-const version = process.env.__TESTING_MKDIRP_NODE_VERSION__ || process.version
-const versArr = version.replace(/^v/, '').split('.')
-const hasNative = +versArr[0] > 10 || +versArr[0] === 10 && +versArr[1] >= 12
-
-const useNative = !hasNative ? () => false : opts => opts.mkdir === fs.mkdir
-const useNativeSync = !hasNative ? () => false : opts => opts.mkdirSync === fs.mkdirSync
-
-module.exports = {useNative, useNativeSync}
 
 
 /***/ }),
@@ -54530,6 +49599,30 @@ exports.Request = Request;
 exports.Response = Response;
 exports.FetchError = FetchError;
 exports.AbortError = AbortError;
+
+
+/***/ }),
+
+/***/ 851:
+/***/ ((module) => {
+
+"use strict";
+
+
+const pathKey = (options = {}) => {
+	const environment = options.env || process.env;
+	const platform = options.platform || process.platform;
+
+	if (platform !== 'win32') {
+		return 'PATH';
+	}
+
+	return Object.keys(environment).reverse().find(key => key.toUpperCase() === 'PATH') || 'Path';
+};
+
+module.exports = pathKey;
+// TODO: Remove this for the next major release
+module.exports["default"] = pathKey;
 
 
 /***/ }),
@@ -57756,4526 +52849,39 @@ function coerce (version, options) {
 
 /***/ }),
 
-/***/ 6620:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// high-level commands
-exports.c = exports.create = __nccwpck_require__(3759)
-exports.r = exports.replace = __nccwpck_require__(6562)
-exports.t = exports.list = __nccwpck_require__(7991)
-exports.u = exports.update = __nccwpck_require__(7488)
-exports.x = exports.extract = __nccwpck_require__(7957)
-
-// classes
-exports.Pack = __nccwpck_require__(5745)
-exports.Unpack = __nccwpck_require__(9800)
-exports.Parse = __nccwpck_require__(3576)
-exports.ReadEntry = __nccwpck_require__(1774)
-exports.WriteEntry = __nccwpck_require__(6900)
-exports.Header = __nccwpck_require__(9868)
-exports.Pax = __nccwpck_require__(476)
-exports.types = __nccwpck_require__(2976)
-
-
-/***/ }),
-
-/***/ 3759:
+/***/ 5382:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 "use strict";
 
+const shebangRegex = __nccwpck_require__(11);
 
-// tar -c
-const hlo = __nccwpck_require__(8052)
+module.exports = (string = '') => {
+	const match = string.match(shebangRegex);
 
-const Pack = __nccwpck_require__(5745)
-const fsm = __nccwpck_require__(1354)
-const t = __nccwpck_require__(7991)
-const path = __nccwpck_require__(1017)
+	if (!match) {
+		return null;
+	}
 
-module.exports = (opt_, files, cb) => {
-  if (typeof files === 'function') {
-    cb = files
-  }
+	const [path, argument] = match[0].replace(/#! ?/, '').split(' ');
+	const binary = path.split('/').pop();
 
-  if (Array.isArray(opt_)) {
-    files = opt_, opt_ = {}
-  }
+	if (binary === 'env') {
+		return argument;
+	}
 
-  if (!files || !Array.isArray(files) || !files.length) {
-    throw new TypeError('no files or directories specified')
-  }
-
-  files = Array.from(files)
-
-  const opt = hlo(opt_)
-
-  if (opt.sync && typeof cb === 'function') {
-    throw new TypeError('callback not supported for sync tar functions')
-  }
-
-  if (!opt.file && typeof cb === 'function') {
-    throw new TypeError('callback only supported with file option')
-  }
-
-  return opt.file && opt.sync ? createFileSync(opt, files)
-    : opt.file ? createFile(opt, files, cb)
-    : opt.sync ? createSync(opt, files)
-    : create(opt, files)
-}
-
-const createFileSync = (opt, files) => {
-  const p = new Pack.Sync(opt)
-  const stream = new fsm.WriteStreamSync(opt.file, {
-    mode: opt.mode || 0o666,
-  })
-  p.pipe(stream)
-  addFilesSync(p, files)
-}
-
-const createFile = (opt, files, cb) => {
-  const p = new Pack(opt)
-  const stream = new fsm.WriteStream(opt.file, {
-    mode: opt.mode || 0o666,
-  })
-  p.pipe(stream)
-
-  const promise = new Promise((res, rej) => {
-    stream.on('error', rej)
-    stream.on('close', res)
-    p.on('error', rej)
-  })
-
-  addFilesAsync(p, files)
-
-  return cb ? promise.then(cb, cb) : promise
-}
-
-const addFilesSync = (p, files) => {
-  files.forEach(file => {
-    if (file.charAt(0) === '@') {
-      t({
-        file: path.resolve(p.cwd, file.slice(1)),
-        sync: true,
-        noResume: true,
-        onentry: entry => p.add(entry),
-      })
-    } else {
-      p.add(file)
-    }
-  })
-  p.end()
-}
-
-const addFilesAsync = (p, files) => {
-  while (files.length) {
-    const file = files.shift()
-    if (file.charAt(0) === '@') {
-      return t({
-        file: path.resolve(p.cwd, file.slice(1)),
-        noResume: true,
-        onentry: entry => p.add(entry),
-      }).then(_ => addFilesAsync(p, files))
-    } else {
-      p.add(file)
-    }
-  }
-  p.end()
-}
-
-const createSync = (opt, files) => {
-  const p = new Pack.Sync(opt)
-  addFilesSync(p, files)
-  return p
-}
-
-const create = (opt, files) => {
-  const p = new Pack(opt)
-  addFilesAsync(p, files)
-  return p
-}
+	return argument ? `${binary} ${argument}` : binary;
+};
 
 
 /***/ }),
 
-/***/ 7957:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// tar -x
-const hlo = __nccwpck_require__(8052)
-const Unpack = __nccwpck_require__(9800)
-const fs = __nccwpck_require__(7147)
-const fsm = __nccwpck_require__(1354)
-const path = __nccwpck_require__(1017)
-const stripSlash = __nccwpck_require__(9812)
-
-module.exports = (opt_, files, cb) => {
-  if (typeof opt_ === 'function') {
-    cb = opt_, files = null, opt_ = {}
-  } else if (Array.isArray(opt_)) {
-    files = opt_, opt_ = {}
-  }
-
-  if (typeof files === 'function') {
-    cb = files, files = null
-  }
-
-  if (!files) {
-    files = []
-  } else {
-    files = Array.from(files)
-  }
-
-  const opt = hlo(opt_)
-
-  if (opt.sync && typeof cb === 'function') {
-    throw new TypeError('callback not supported for sync tar functions')
-  }
-
-  if (!opt.file && typeof cb === 'function') {
-    throw new TypeError('callback only supported with file option')
-  }
-
-  if (files.length) {
-    filesFilter(opt, files)
-  }
-
-  return opt.file && opt.sync ? extractFileSync(opt)
-    : opt.file ? extractFile(opt, cb)
-    : opt.sync ? extractSync(opt)
-    : extract(opt)
-}
-
-// construct a filter that limits the file entries listed
-// include child entries if a dir is included
-const filesFilter = (opt, files) => {
-  const map = new Map(files.map(f => [stripSlash(f), true]))
-  const filter = opt.filter
-
-  const mapHas = (file, r) => {
-    const root = r || path.parse(file).root || '.'
-    const ret = file === root ? false
-      : map.has(file) ? map.get(file)
-      : mapHas(path.dirname(file), root)
-
-    map.set(file, ret)
-    return ret
-  }
-
-  opt.filter = filter
-    ? (file, entry) => filter(file, entry) && mapHas(stripSlash(file))
-    : file => mapHas(stripSlash(file))
-}
-
-const extractFileSync = opt => {
-  const u = new Unpack.Sync(opt)
-
-  const file = opt.file
-  const stat = fs.statSync(file)
-  // This trades a zero-byte read() syscall for a stat
-  // However, it will usually result in less memory allocation
-  const readSize = opt.maxReadSize || 16 * 1024 * 1024
-  const stream = new fsm.ReadStreamSync(file, {
-    readSize: readSize,
-    size: stat.size,
-  })
-  stream.pipe(u)
-}
-
-const extractFile = (opt, cb) => {
-  const u = new Unpack(opt)
-  const readSize = opt.maxReadSize || 16 * 1024 * 1024
-
-  const file = opt.file
-  const p = new Promise((resolve, reject) => {
-    u.on('error', reject)
-    u.on('close', resolve)
-
-    // This trades a zero-byte read() syscall for a stat
-    // However, it will usually result in less memory allocation
-    fs.stat(file, (er, stat) => {
-      if (er) {
-        reject(er)
-      } else {
-        const stream = new fsm.ReadStream(file, {
-          readSize: readSize,
-          size: stat.size,
-        })
-        stream.on('error', reject)
-        stream.pipe(u)
-      }
-    })
-  })
-  return cb ? p.then(cb, cb) : p
-}
-
-const extractSync = opt => new Unpack.Sync(opt)
-
-const extract = opt => new Unpack(opt)
-
-
-/***/ }),
-
-/***/ 9592:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-// Get the appropriate flag to use for creating files
-// We use fmap on Windows platforms for files less than
-// 512kb.  This is a fairly low limit, but avoids making
-// things slower in some cases.  Since most of what this
-// library is used for is extracting tarballs of many
-// relatively small files in npm packages and the like,
-// it can be a big boost on Windows platforms.
-// Only supported in Node v12.9.0 and above.
-const platform = process.env.__FAKE_PLATFORM__ || process.platform
-const isWindows = platform === 'win32'
-const fs = global.__FAKE_TESTING_FS__ || __nccwpck_require__(7147)
-
-/* istanbul ignore next */
-const { O_CREAT, O_TRUNC, O_WRONLY, UV_FS_O_FILEMAP = 0 } = fs.constants
-
-const fMapEnabled = isWindows && !!UV_FS_O_FILEMAP
-const fMapLimit = 512 * 1024
-const fMapFlag = UV_FS_O_FILEMAP | O_TRUNC | O_CREAT | O_WRONLY
-module.exports = !fMapEnabled ? () => 'w'
-  : size => size < fMapLimit ? fMapFlag : 'w'
-
-
-/***/ }),
-
-/***/ 9868:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-// parse a 512-byte header block to a data object, or vice-versa
-// encode returns `true` if a pax extended header is needed, because
-// the data could not be faithfully encoded in a simple header.
-// (Also, check header.needPax to see if it needs a pax header.)
-
-const types = __nccwpck_require__(2976)
-const pathModule = (__nccwpck_require__(1017).posix)
-const large = __nccwpck_require__(8156)
-
-const SLURP = Symbol('slurp')
-const TYPE = Symbol('type')
-
-class Header {
-  constructor (data, off, ex, gex) {
-    this.cksumValid = false
-    this.needPax = false
-    this.nullBlock = false
-
-    this.block = null
-    this.path = null
-    this.mode = null
-    this.uid = null
-    this.gid = null
-    this.size = null
-    this.mtime = null
-    this.cksum = null
-    this[TYPE] = '0'
-    this.linkpath = null
-    this.uname = null
-    this.gname = null
-    this.devmaj = 0
-    this.devmin = 0
-    this.atime = null
-    this.ctime = null
-
-    if (Buffer.isBuffer(data)) {
-      this.decode(data, off || 0, ex, gex)
-    } else if (data) {
-      this.set(data)
-    }
-  }
-
-  decode (buf, off, ex, gex) {
-    if (!off) {
-      off = 0
-    }
-
-    if (!buf || !(buf.length >= off + 512)) {
-      throw new Error('need 512 bytes for header')
-    }
-
-    this.path = decString(buf, off, 100)
-    this.mode = decNumber(buf, off + 100, 8)
-    this.uid = decNumber(buf, off + 108, 8)
-    this.gid = decNumber(buf, off + 116, 8)
-    this.size = decNumber(buf, off + 124, 12)
-    this.mtime = decDate(buf, off + 136, 12)
-    this.cksum = decNumber(buf, off + 148, 12)
-
-    // if we have extended or global extended headers, apply them now
-    // See https://github.com/npm/node-tar/pull/187
-    this[SLURP](ex)
-    this[SLURP](gex, true)
-
-    // old tar versions marked dirs as a file with a trailing /
-    this[TYPE] = decString(buf, off + 156, 1)
-    if (this[TYPE] === '') {
-      this[TYPE] = '0'
-    }
-    if (this[TYPE] === '0' && this.path.slice(-1) === '/') {
-      this[TYPE] = '5'
-    }
-
-    // tar implementations sometimes incorrectly put the stat(dir).size
-    // as the size in the tarball, even though Directory entries are
-    // not able to have any body at all.  In the very rare chance that
-    // it actually DOES have a body, we weren't going to do anything with
-    // it anyway, and it'll just be a warning about an invalid header.
-    if (this[TYPE] === '5') {
-      this.size = 0
-    }
-
-    this.linkpath = decString(buf, off + 157, 100)
-    if (buf.slice(off + 257, off + 265).toString() === 'ustar\u000000') {
-      this.uname = decString(buf, off + 265, 32)
-      this.gname = decString(buf, off + 297, 32)
-      this.devmaj = decNumber(buf, off + 329, 8)
-      this.devmin = decNumber(buf, off + 337, 8)
-      if (buf[off + 475] !== 0) {
-        // definitely a prefix, definitely >130 chars.
-        const prefix = decString(buf, off + 345, 155)
-        this.path = prefix + '/' + this.path
-      } else {
-        const prefix = decString(buf, off + 345, 130)
-        if (prefix) {
-          this.path = prefix + '/' + this.path
-        }
-        this.atime = decDate(buf, off + 476, 12)
-        this.ctime = decDate(buf, off + 488, 12)
-      }
-    }
-
-    let sum = 8 * 0x20
-    for (let i = off; i < off + 148; i++) {
-      sum += buf[i]
-    }
-
-    for (let i = off + 156; i < off + 512; i++) {
-      sum += buf[i]
-    }
-
-    this.cksumValid = sum === this.cksum
-    if (this.cksum === null && sum === 8 * 0x20) {
-      this.nullBlock = true
-    }
-  }
-
-  [SLURP] (ex, global) {
-    for (const k in ex) {
-      // we slurp in everything except for the path attribute in
-      // a global extended header, because that's weird.
-      if (ex[k] !== null && ex[k] !== undefined &&
-          !(global && k === 'path')) {
-        this[k] = ex[k]
-      }
-    }
-  }
-
-  encode (buf, off) {
-    if (!buf) {
-      buf = this.block = Buffer.alloc(512)
-      off = 0
-    }
-
-    if (!off) {
-      off = 0
-    }
-
-    if (!(buf.length >= off + 512)) {
-      throw new Error('need 512 bytes for header')
-    }
-
-    const prefixSize = this.ctime || this.atime ? 130 : 155
-    const split = splitPrefix(this.path || '', prefixSize)
-    const path = split[0]
-    const prefix = split[1]
-    this.needPax = split[2]
-
-    this.needPax = encString(buf, off, 100, path) || this.needPax
-    this.needPax = encNumber(buf, off + 100, 8, this.mode) || this.needPax
-    this.needPax = encNumber(buf, off + 108, 8, this.uid) || this.needPax
-    this.needPax = encNumber(buf, off + 116, 8, this.gid) || this.needPax
-    this.needPax = encNumber(buf, off + 124, 12, this.size) || this.needPax
-    this.needPax = encDate(buf, off + 136, 12, this.mtime) || this.needPax
-    buf[off + 156] = this[TYPE].charCodeAt(0)
-    this.needPax = encString(buf, off + 157, 100, this.linkpath) || this.needPax
-    buf.write('ustar\u000000', off + 257, 8)
-    this.needPax = encString(buf, off + 265, 32, this.uname) || this.needPax
-    this.needPax = encString(buf, off + 297, 32, this.gname) || this.needPax
-    this.needPax = encNumber(buf, off + 329, 8, this.devmaj) || this.needPax
-    this.needPax = encNumber(buf, off + 337, 8, this.devmin) || this.needPax
-    this.needPax = encString(buf, off + 345, prefixSize, prefix) || this.needPax
-    if (buf[off + 475] !== 0) {
-      this.needPax = encString(buf, off + 345, 155, prefix) || this.needPax
-    } else {
-      this.needPax = encString(buf, off + 345, 130, prefix) || this.needPax
-      this.needPax = encDate(buf, off + 476, 12, this.atime) || this.needPax
-      this.needPax = encDate(buf, off + 488, 12, this.ctime) || this.needPax
-    }
-
-    let sum = 8 * 0x20
-    for (let i = off; i < off + 148; i++) {
-      sum += buf[i]
-    }
-
-    for (let i = off + 156; i < off + 512; i++) {
-      sum += buf[i]
-    }
-
-    this.cksum = sum
-    encNumber(buf, off + 148, 8, this.cksum)
-    this.cksumValid = true
-
-    return this.needPax
-  }
-
-  set (data) {
-    for (const i in data) {
-      if (data[i] !== null && data[i] !== undefined) {
-        this[i] = data[i]
-      }
-    }
-  }
-
-  get type () {
-    return types.name.get(this[TYPE]) || this[TYPE]
-  }
-
-  get typeKey () {
-    return this[TYPE]
-  }
-
-  set type (type) {
-    if (types.code.has(type)) {
-      this[TYPE] = types.code.get(type)
-    } else {
-      this[TYPE] = type
-    }
-  }
-}
-
-const splitPrefix = (p, prefixSize) => {
-  const pathSize = 100
-  let pp = p
-  let prefix = ''
-  let ret
-  const root = pathModule.parse(p).root || '.'
-
-  if (Buffer.byteLength(pp) < pathSize) {
-    ret = [pp, prefix, false]
-  } else {
-    // first set prefix to the dir, and path to the base
-    prefix = pathModule.dirname(pp)
-    pp = pathModule.basename(pp)
-
-    do {
-      if (Buffer.byteLength(pp) <= pathSize &&
-          Buffer.byteLength(prefix) <= prefixSize) {
-        // both fit!
-        ret = [pp, prefix, false]
-      } else if (Buffer.byteLength(pp) > pathSize &&
-          Buffer.byteLength(prefix) <= prefixSize) {
-        // prefix fits in prefix, but path doesn't fit in path
-        ret = [pp.slice(0, pathSize - 1), prefix, true]
-      } else {
-        // make path take a bit from prefix
-        pp = pathModule.join(pathModule.basename(prefix), pp)
-        prefix = pathModule.dirname(prefix)
-      }
-    } while (prefix !== root && !ret)
-
-    // at this point, found no resolution, just truncate
-    if (!ret) {
-      ret = [p.slice(0, pathSize - 1), '', true]
-    }
-  }
-  return ret
-}
-
-const decString = (buf, off, size) =>
-  buf.slice(off, off + size).toString('utf8').replace(/\0.*/, '')
-
-const decDate = (buf, off, size) =>
-  numToDate(decNumber(buf, off, size))
-
-const numToDate = num => num === null ? null : new Date(num * 1000)
-
-const decNumber = (buf, off, size) =>
-  buf[off] & 0x80 ? large.parse(buf.slice(off, off + size))
-  : decSmallNumber(buf, off, size)
-
-const nanNull = value => isNaN(value) ? null : value
-
-const decSmallNumber = (buf, off, size) =>
-  nanNull(parseInt(
-    buf.slice(off, off + size)
-      .toString('utf8').replace(/\0.*$/, '').trim(), 8))
-
-// the maximum encodable as a null-terminated octal, by field size
-const MAXNUM = {
-  12: 0o77777777777,
-  8: 0o7777777,
-}
-
-const encNumber = (buf, off, size, number) =>
-  number === null ? false :
-  number > MAXNUM[size] || number < 0
-    ? (large.encode(number, buf.slice(off, off + size)), true)
-    : (encSmallNumber(buf, off, size, number), false)
-
-const encSmallNumber = (buf, off, size, number) =>
-  buf.write(octalString(number, size), off, size, 'ascii')
-
-const octalString = (number, size) =>
-  padOctal(Math.floor(number).toString(8), size)
-
-const padOctal = (string, size) =>
-  (string.length === size - 1 ? string
-  : new Array(size - string.length - 1).join('0') + string + ' ') + '\0'
-
-const encDate = (buf, off, size, date) =>
-  date === null ? false :
-  encNumber(buf, off, size, date.getTime() / 1000)
-
-// enough to fill the longest string we've got
-const NULLS = new Array(156).join('\0')
-// pad with nulls, return true if it's longer or non-ascii
-const encString = (buf, off, size, string) =>
-  string === null ? false :
-  (buf.write(string + NULLS, off, size, 'utf8'),
-  string.length !== Buffer.byteLength(string) || string.length > size)
-
-module.exports = Header
-
-
-/***/ }),
-
-/***/ 8052:
+/***/ 11:
 /***/ ((module) => {
 
 "use strict";
 
-
-// turn tar(1) style args like `C` into the more verbose things like `cwd`
-
-const argmap = new Map([
-  ['C', 'cwd'],
-  ['f', 'file'],
-  ['z', 'gzip'],
-  ['P', 'preservePaths'],
-  ['U', 'unlink'],
-  ['strip-components', 'strip'],
-  ['stripComponents', 'strip'],
-  ['keep-newer', 'newer'],
-  ['keepNewer', 'newer'],
-  ['keep-newer-files', 'newer'],
-  ['keepNewerFiles', 'newer'],
-  ['k', 'keep'],
-  ['keep-existing', 'keep'],
-  ['keepExisting', 'keep'],
-  ['m', 'noMtime'],
-  ['no-mtime', 'noMtime'],
-  ['p', 'preserveOwner'],
-  ['L', 'follow'],
-  ['h', 'follow'],
-])
-
-module.exports = opt => opt ? Object.keys(opt).map(k => [
-  argmap.has(k) ? argmap.get(k) : k, opt[k],
-]).reduce((set, kv) => (set[kv[0]] = kv[1], set), Object.create(null)) : {}
-
-
-/***/ }),
-
-/***/ 8156:
-/***/ ((module) => {
-
-"use strict";
-
-// Tar can encode large and negative numbers using a leading byte of
-// 0xff for negative, and 0x80 for positive.
-
-const encode = (num, buf) => {
-  if (!Number.isSafeInteger(num)) {
-  // The number is so large that javascript cannot represent it with integer
-  // precision.
-    throw Error('cannot encode number outside of javascript safe integer range')
-  } else if (num < 0) {
-    encodeNegative(num, buf)
-  } else {
-    encodePositive(num, buf)
-  }
-  return buf
-}
-
-const encodePositive = (num, buf) => {
-  buf[0] = 0x80
-
-  for (var i = buf.length; i > 1; i--) {
-    buf[i - 1] = num & 0xff
-    num = Math.floor(num / 0x100)
-  }
-}
-
-const encodeNegative = (num, buf) => {
-  buf[0] = 0xff
-  var flipped = false
-  num = num * -1
-  for (var i = buf.length; i > 1; i--) {
-    var byte = num & 0xff
-    num = Math.floor(num / 0x100)
-    if (flipped) {
-      buf[i - 1] = onesComp(byte)
-    } else if (byte === 0) {
-      buf[i - 1] = 0
-    } else {
-      flipped = true
-      buf[i - 1] = twosComp(byte)
-    }
-  }
-}
-
-const parse = (buf) => {
-  const pre = buf[0]
-  const value = pre === 0x80 ? pos(buf.slice(1, buf.length))
-    : pre === 0xff ? twos(buf)
-    : null
-  if (value === null) {
-    throw Error('invalid base256 encoding')
-  }
-
-  if (!Number.isSafeInteger(value)) {
-  // The number is so large that javascript cannot represent it with integer
-  // precision.
-    throw Error('parsed number outside of javascript safe integer range')
-  }
-
-  return value
-}
-
-const twos = (buf) => {
-  var len = buf.length
-  var sum = 0
-  var flipped = false
-  for (var i = len - 1; i > -1; i--) {
-    var byte = buf[i]
-    var f
-    if (flipped) {
-      f = onesComp(byte)
-    } else if (byte === 0) {
-      f = byte
-    } else {
-      flipped = true
-      f = twosComp(byte)
-    }
-    if (f !== 0) {
-      sum -= f * Math.pow(256, len - i - 1)
-    }
-  }
-  return sum
-}
-
-const pos = (buf) => {
-  var len = buf.length
-  var sum = 0
-  for (var i = len - 1; i > -1; i--) {
-    var byte = buf[i]
-    if (byte !== 0) {
-      sum += byte * Math.pow(256, len - i - 1)
-    }
-  }
-  return sum
-}
-
-const onesComp = byte => (0xff ^ byte) & 0xff
-
-const twosComp = byte => ((0xff ^ byte) + 1) & 0xff
-
-module.exports = {
-  encode,
-  parse,
-}
-
-
-/***/ }),
-
-/***/ 7991:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// XXX: This shares a lot in common with extract.js
-// maybe some DRY opportunity here?
-
-// tar -t
-const hlo = __nccwpck_require__(8052)
-const Parser = __nccwpck_require__(3576)
-const fs = __nccwpck_require__(7147)
-const fsm = __nccwpck_require__(1354)
-const path = __nccwpck_require__(1017)
-const stripSlash = __nccwpck_require__(9812)
-
-module.exports = (opt_, files, cb) => {
-  if (typeof opt_ === 'function') {
-    cb = opt_, files = null, opt_ = {}
-  } else if (Array.isArray(opt_)) {
-    files = opt_, opt_ = {}
-  }
-
-  if (typeof files === 'function') {
-    cb = files, files = null
-  }
-
-  if (!files) {
-    files = []
-  } else {
-    files = Array.from(files)
-  }
-
-  const opt = hlo(opt_)
-
-  if (opt.sync && typeof cb === 'function') {
-    throw new TypeError('callback not supported for sync tar functions')
-  }
-
-  if (!opt.file && typeof cb === 'function') {
-    throw new TypeError('callback only supported with file option')
-  }
-
-  if (files.length) {
-    filesFilter(opt, files)
-  }
-
-  if (!opt.noResume) {
-    onentryFunction(opt)
-  }
-
-  return opt.file && opt.sync ? listFileSync(opt)
-    : opt.file ? listFile(opt, cb)
-    : list(opt)
-}
-
-const onentryFunction = opt => {
-  const onentry = opt.onentry
-  opt.onentry = onentry ? e => {
-    onentry(e)
-    e.resume()
-  } : e => e.resume()
-}
-
-// construct a filter that limits the file entries listed
-// include child entries if a dir is included
-const filesFilter = (opt, files) => {
-  const map = new Map(files.map(f => [stripSlash(f), true]))
-  const filter = opt.filter
-
-  const mapHas = (file, r) => {
-    const root = r || path.parse(file).root || '.'
-    const ret = file === root ? false
-      : map.has(file) ? map.get(file)
-      : mapHas(path.dirname(file), root)
-
-    map.set(file, ret)
-    return ret
-  }
-
-  opt.filter = filter
-    ? (file, entry) => filter(file, entry) && mapHas(stripSlash(file))
-    : file => mapHas(stripSlash(file))
-}
-
-const listFileSync = opt => {
-  const p = list(opt)
-  const file = opt.file
-  let threw = true
-  let fd
-  try {
-    const stat = fs.statSync(file)
-    const readSize = opt.maxReadSize || 16 * 1024 * 1024
-    if (stat.size < readSize) {
-      p.end(fs.readFileSync(file))
-    } else {
-      let pos = 0
-      const buf = Buffer.allocUnsafe(readSize)
-      fd = fs.openSync(file, 'r')
-      while (pos < stat.size) {
-        const bytesRead = fs.readSync(fd, buf, 0, readSize, pos)
-        pos += bytesRead
-        p.write(buf.slice(0, bytesRead))
-      }
-      p.end()
-    }
-    threw = false
-  } finally {
-    if (threw && fd) {
-      try {
-        fs.closeSync(fd)
-      } catch (er) {}
-    }
-  }
-}
-
-const listFile = (opt, cb) => {
-  const parse = new Parser(opt)
-  const readSize = opt.maxReadSize || 16 * 1024 * 1024
-
-  const file = opt.file
-  const p = new Promise((resolve, reject) => {
-    parse.on('error', reject)
-    parse.on('end', resolve)
-
-    fs.stat(file, (er, stat) => {
-      if (er) {
-        reject(er)
-      } else {
-        const stream = new fsm.ReadStream(file, {
-          readSize: readSize,
-          size: stat.size,
-        })
-        stream.on('error', reject)
-        stream.pipe(parse)
-      }
-    })
-  })
-  return cb ? p.then(cb, cb) : p
-}
-
-const list = opt => new Parser(opt)
-
-
-/***/ }),
-
-/***/ 7994:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-// wrapper around mkdirp for tar's needs.
-
-// TODO: This should probably be a class, not functionally
-// passing around state in a gazillion args.
-
-const mkdirp = __nccwpck_require__(760)
-const fs = __nccwpck_require__(7147)
-const path = __nccwpck_require__(1017)
-const chownr = __nccwpck_require__(2032)
-const normPath = __nccwpck_require__(8407)
-
-class SymlinkError extends Error {
-  constructor (symlink, path) {
-    super('Cannot extract through symbolic link')
-    this.path = path
-    this.symlink = symlink
-  }
-
-  get name () {
-    return 'SylinkError'
-  }
-}
-
-class CwdError extends Error {
-  constructor (path, code) {
-    super(code + ': Cannot cd into \'' + path + '\'')
-    this.path = path
-    this.code = code
-  }
-
-  get name () {
-    return 'CwdError'
-  }
-}
-
-const cGet = (cache, key) => cache.get(normPath(key))
-const cSet = (cache, key, val) => cache.set(normPath(key), val)
-
-const checkCwd = (dir, cb) => {
-  fs.stat(dir, (er, st) => {
-    if (er || !st.isDirectory()) {
-      er = new CwdError(dir, er && er.code || 'ENOTDIR')
-    }
-    cb(er)
-  })
-}
-
-module.exports = (dir, opt, cb) => {
-  dir = normPath(dir)
-
-  // if there's any overlap between mask and mode,
-  // then we'll need an explicit chmod
-  const umask = opt.umask
-  const mode = opt.mode | 0o0700
-  const needChmod = (mode & umask) !== 0
-
-  const uid = opt.uid
-  const gid = opt.gid
-  const doChown = typeof uid === 'number' &&
-    typeof gid === 'number' &&
-    (uid !== opt.processUid || gid !== opt.processGid)
-
-  const preserve = opt.preserve
-  const unlink = opt.unlink
-  const cache = opt.cache
-  const cwd = normPath(opt.cwd)
-
-  const done = (er, created) => {
-    if (er) {
-      cb(er)
-    } else {
-      cSet(cache, dir, true)
-      if (created && doChown) {
-        chownr(created, uid, gid, er => done(er))
-      } else if (needChmod) {
-        fs.chmod(dir, mode, cb)
-      } else {
-        cb()
-      }
-    }
-  }
-
-  if (cache && cGet(cache, dir) === true) {
-    return done()
-  }
-
-  if (dir === cwd) {
-    return checkCwd(dir, done)
-  }
-
-  if (preserve) {
-    return mkdirp(dir, { mode }).then(made => done(null, made), done)
-  }
-
-  const sub = normPath(path.relative(cwd, dir))
-  const parts = sub.split('/')
-  mkdir_(cwd, parts, mode, cache, unlink, cwd, null, done)
-}
-
-const mkdir_ = (base, parts, mode, cache, unlink, cwd, created, cb) => {
-  if (!parts.length) {
-    return cb(null, created)
-  }
-  const p = parts.shift()
-  const part = normPath(path.resolve(base + '/' + p))
-  if (cGet(cache, part)) {
-    return mkdir_(part, parts, mode, cache, unlink, cwd, created, cb)
-  }
-  fs.mkdir(part, mode, onmkdir(part, parts, mode, cache, unlink, cwd, created, cb))
-}
-
-const onmkdir = (part, parts, mode, cache, unlink, cwd, created, cb) => er => {
-  if (er) {
-    fs.lstat(part, (statEr, st) => {
-      if (statEr) {
-        statEr.path = statEr.path && normPath(statEr.path)
-        cb(statEr)
-      } else if (st.isDirectory()) {
-        mkdir_(part, parts, mode, cache, unlink, cwd, created, cb)
-      } else if (unlink) {
-        fs.unlink(part, er => {
-          if (er) {
-            return cb(er)
-          }
-          fs.mkdir(part, mode, onmkdir(part, parts, mode, cache, unlink, cwd, created, cb))
-        })
-      } else if (st.isSymbolicLink()) {
-        return cb(new SymlinkError(part, part + '/' + parts.join('/')))
-      } else {
-        cb(er)
-      }
-    })
-  } else {
-    created = created || part
-    mkdir_(part, parts, mode, cache, unlink, cwd, created, cb)
-  }
-}
-
-const checkCwdSync = dir => {
-  let ok = false
-  let code = 'ENOTDIR'
-  try {
-    ok = fs.statSync(dir).isDirectory()
-  } catch (er) {
-    code = er.code
-  } finally {
-    if (!ok) {
-      throw new CwdError(dir, code)
-    }
-  }
-}
-
-module.exports.sync = (dir, opt) => {
-  dir = normPath(dir)
-  // if there's any overlap between mask and mode,
-  // then we'll need an explicit chmod
-  const umask = opt.umask
-  const mode = opt.mode | 0o0700
-  const needChmod = (mode & umask) !== 0
-
-  const uid = opt.uid
-  const gid = opt.gid
-  const doChown = typeof uid === 'number' &&
-    typeof gid === 'number' &&
-    (uid !== opt.processUid || gid !== opt.processGid)
-
-  const preserve = opt.preserve
-  const unlink = opt.unlink
-  const cache = opt.cache
-  const cwd = normPath(opt.cwd)
-
-  const done = (created) => {
-    cSet(cache, dir, true)
-    if (created && doChown) {
-      chownr.sync(created, uid, gid)
-    }
-    if (needChmod) {
-      fs.chmodSync(dir, mode)
-    }
-  }
-
-  if (cache && cGet(cache, dir) === true) {
-    return done()
-  }
-
-  if (dir === cwd) {
-    checkCwdSync(cwd)
-    return done()
-  }
-
-  if (preserve) {
-    return done(mkdirp.sync(dir, mode))
-  }
-
-  const sub = normPath(path.relative(cwd, dir))
-  const parts = sub.split('/')
-  let created = null
-  for (let p = parts.shift(), part = cwd;
-    p && (part += '/' + p);
-    p = parts.shift()) {
-    part = normPath(path.resolve(part))
-    if (cGet(cache, part)) {
-      continue
-    }
-
-    try {
-      fs.mkdirSync(part, mode)
-      created = created || part
-      cSet(cache, part, true)
-    } catch (er) {
-      const st = fs.lstatSync(part)
-      if (st.isDirectory()) {
-        cSet(cache, part, true)
-        continue
-      } else if (unlink) {
-        fs.unlinkSync(part)
-        fs.mkdirSync(part, mode)
-        created = created || part
-        cSet(cache, part, true)
-        continue
-      } else if (st.isSymbolicLink()) {
-        return new SymlinkError(part, part + '/' + parts.join('/'))
-      }
-    }
-  }
-
-  return done(created)
-}
-
-
-/***/ }),
-
-/***/ 8833:
-/***/ ((module) => {
-
-"use strict";
-
-module.exports = (mode, isDir, portable) => {
-  mode &= 0o7777
-
-  // in portable mode, use the minimum reasonable umask
-  // if this system creates files with 0o664 by default
-  // (as some linux distros do), then we'll write the
-  // archive with 0o644 instead.  Also, don't ever create
-  // a file that is not readable/writable by the owner.
-  if (portable) {
-    mode = (mode | 0o600) & ~0o22
-  }
-
-  // if dirs are readable, then they should be listable
-  if (isDir) {
-    if (mode & 0o400) {
-      mode |= 0o100
-    }
-    if (mode & 0o40) {
-      mode |= 0o10
-    }
-    if (mode & 0o4) {
-      mode |= 0o1
-    }
-  }
-  return mode
-}
-
-
-/***/ }),
-
-/***/ 2066:
-/***/ ((module) => {
-
-// warning: extremely hot code path.
-// This has been meticulously optimized for use
-// within npm install on large package trees.
-// Do not edit without careful benchmarking.
-const normalizeCache = Object.create(null)
-const { hasOwnProperty } = Object.prototype
-module.exports = s => {
-  if (!hasOwnProperty.call(normalizeCache, s)) {
-    normalizeCache[s] = s.normalize('NFD')
-  }
-  return normalizeCache[s]
-}
-
-
-/***/ }),
-
-/***/ 8407:
-/***/ ((module) => {
-
-// on windows, either \ or / are valid directory separators.
-// on unix, \ is a valid character in filenames.
-// so, on windows, and only on windows, we replace all \ chars with /,
-// so that we can use / as our one and only directory separator char.
-
-const platform = process.env.TESTING_TAR_FAKE_PLATFORM || process.platform
-module.exports = platform !== 'win32' ? p => p
-  : p => p && p.replace(/\\/g, '/')
-
-
-/***/ }),
-
-/***/ 5745:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// A readable tar stream creator
-// Technically, this is a transform stream that you write paths into,
-// and tar format comes out of.
-// The `add()` method is like `write()` but returns this,
-// and end() return `this` as well, so you can
-// do `new Pack(opt).add('files').add('dir').end().pipe(output)
-// You could also do something like:
-// streamOfPaths().pipe(new Pack()).pipe(new fs.WriteStream('out.tar'))
-
-class PackJob {
-  constructor (path, absolute) {
-    this.path = path || './'
-    this.absolute = absolute
-    this.entry = null
-    this.stat = null
-    this.readdir = null
-    this.pending = false
-    this.ignore = false
-    this.piped = false
-  }
-}
-
-const { Minipass } = __nccwpck_require__(8759)
-const zlib = __nccwpck_require__(8925)
-const ReadEntry = __nccwpck_require__(1774)
-const WriteEntry = __nccwpck_require__(6900)
-const WriteEntrySync = WriteEntry.Sync
-const WriteEntryTar = WriteEntry.Tar
-const Yallist = __nccwpck_require__(1590)
-const EOF = Buffer.alloc(1024)
-const ONSTAT = Symbol('onStat')
-const ENDED = Symbol('ended')
-const QUEUE = Symbol('queue')
-const CURRENT = Symbol('current')
-const PROCESS = Symbol('process')
-const PROCESSING = Symbol('processing')
-const PROCESSJOB = Symbol('processJob')
-const JOBS = Symbol('jobs')
-const JOBDONE = Symbol('jobDone')
-const ADDFSENTRY = Symbol('addFSEntry')
-const ADDTARENTRY = Symbol('addTarEntry')
-const STAT = Symbol('stat')
-const READDIR = Symbol('readdir')
-const ONREADDIR = Symbol('onreaddir')
-const PIPE = Symbol('pipe')
-const ENTRY = Symbol('entry')
-const ENTRYOPT = Symbol('entryOpt')
-const WRITEENTRYCLASS = Symbol('writeEntryClass')
-const WRITE = Symbol('write')
-const ONDRAIN = Symbol('ondrain')
-
-const fs = __nccwpck_require__(7147)
-const path = __nccwpck_require__(1017)
-const warner = __nccwpck_require__(1634)
-const normPath = __nccwpck_require__(8407)
-
-const Pack = warner(class Pack extends Minipass {
-  constructor (opt) {
-    super(opt)
-    opt = opt || Object.create(null)
-    this.opt = opt
-    this.file = opt.file || ''
-    this.cwd = opt.cwd || process.cwd()
-    this.maxReadSize = opt.maxReadSize
-    this.preservePaths = !!opt.preservePaths
-    this.strict = !!opt.strict
-    this.noPax = !!opt.noPax
-    this.prefix = normPath(opt.prefix || '')
-    this.linkCache = opt.linkCache || new Map()
-    this.statCache = opt.statCache || new Map()
-    this.readdirCache = opt.readdirCache || new Map()
-
-    this[WRITEENTRYCLASS] = WriteEntry
-    if (typeof opt.onwarn === 'function') {
-      this.on('warn', opt.onwarn)
-    }
-
-    this.portable = !!opt.portable
-    this.zip = null
-    if (opt.gzip) {
-      if (typeof opt.gzip !== 'object') {
-        opt.gzip = {}
-      }
-      if (this.portable) {
-        opt.gzip.portable = true
-      }
-      this.zip = new zlib.Gzip(opt.gzip)
-      this.zip.on('data', chunk => super.write(chunk))
-      this.zip.on('end', _ => super.end())
-      this.zip.on('drain', _ => this[ONDRAIN]())
-      this.on('resume', _ => this.zip.resume())
-    } else {
-      this.on('drain', this[ONDRAIN])
-    }
-
-    this.noDirRecurse = !!opt.noDirRecurse
-    this.follow = !!opt.follow
-    this.noMtime = !!opt.noMtime
-    this.mtime = opt.mtime || null
-
-    this.filter = typeof opt.filter === 'function' ? opt.filter : _ => true
-
-    this[QUEUE] = new Yallist()
-    this[JOBS] = 0
-    this.jobs = +opt.jobs || 4
-    this[PROCESSING] = false
-    this[ENDED] = false
-  }
-
-  [WRITE] (chunk) {
-    return super.write(chunk)
-  }
-
-  add (path) {
-    this.write(path)
-    return this
-  }
-
-  end (path) {
-    if (path) {
-      this.write(path)
-    }
-    this[ENDED] = true
-    this[PROCESS]()
-    return this
-  }
-
-  write (path) {
-    if (this[ENDED]) {
-      throw new Error('write after end')
-    }
-
-    if (path instanceof ReadEntry) {
-      this[ADDTARENTRY](path)
-    } else {
-      this[ADDFSENTRY](path)
-    }
-    return this.flowing
-  }
-
-  [ADDTARENTRY] (p) {
-    const absolute = normPath(path.resolve(this.cwd, p.path))
-    // in this case, we don't have to wait for the stat
-    if (!this.filter(p.path, p)) {
-      p.resume()
-    } else {
-      const job = new PackJob(p.path, absolute, false)
-      job.entry = new WriteEntryTar(p, this[ENTRYOPT](job))
-      job.entry.on('end', _ => this[JOBDONE](job))
-      this[JOBS] += 1
-      this[QUEUE].push(job)
-    }
-
-    this[PROCESS]()
-  }
-
-  [ADDFSENTRY] (p) {
-    const absolute = normPath(path.resolve(this.cwd, p))
-    this[QUEUE].push(new PackJob(p, absolute))
-    this[PROCESS]()
-  }
-
-  [STAT] (job) {
-    job.pending = true
-    this[JOBS] += 1
-    const stat = this.follow ? 'stat' : 'lstat'
-    fs[stat](job.absolute, (er, stat) => {
-      job.pending = false
-      this[JOBS] -= 1
-      if (er) {
-        this.emit('error', er)
-      } else {
-        this[ONSTAT](job, stat)
-      }
-    })
-  }
-
-  [ONSTAT] (job, stat) {
-    this.statCache.set(job.absolute, stat)
-    job.stat = stat
-
-    // now we have the stat, we can filter it.
-    if (!this.filter(job.path, stat)) {
-      job.ignore = true
-    }
-
-    this[PROCESS]()
-  }
-
-  [READDIR] (job) {
-    job.pending = true
-    this[JOBS] += 1
-    fs.readdir(job.absolute, (er, entries) => {
-      job.pending = false
-      this[JOBS] -= 1
-      if (er) {
-        return this.emit('error', er)
-      }
-      this[ONREADDIR](job, entries)
-    })
-  }
-
-  [ONREADDIR] (job, entries) {
-    this.readdirCache.set(job.absolute, entries)
-    job.readdir = entries
-    this[PROCESS]()
-  }
-
-  [PROCESS] () {
-    if (this[PROCESSING]) {
-      return
-    }
-
-    this[PROCESSING] = true
-    for (let w = this[QUEUE].head;
-      w !== null && this[JOBS] < this.jobs;
-      w = w.next) {
-      this[PROCESSJOB](w.value)
-      if (w.value.ignore) {
-        const p = w.next
-        this[QUEUE].removeNode(w)
-        w.next = p
-      }
-    }
-
-    this[PROCESSING] = false
-
-    if (this[ENDED] && !this[QUEUE].length && this[JOBS] === 0) {
-      if (this.zip) {
-        this.zip.end(EOF)
-      } else {
-        super.write(EOF)
-        super.end()
-      }
-    }
-  }
-
-  get [CURRENT] () {
-    return this[QUEUE] && this[QUEUE].head && this[QUEUE].head.value
-  }
-
-  [JOBDONE] (job) {
-    this[QUEUE].shift()
-    this[JOBS] -= 1
-    this[PROCESS]()
-  }
-
-  [PROCESSJOB] (job) {
-    if (job.pending) {
-      return
-    }
-
-    if (job.entry) {
-      if (job === this[CURRENT] && !job.piped) {
-        this[PIPE](job)
-      }
-      return
-    }
-
-    if (!job.stat) {
-      if (this.statCache.has(job.absolute)) {
-        this[ONSTAT](job, this.statCache.get(job.absolute))
-      } else {
-        this[STAT](job)
-      }
-    }
-    if (!job.stat) {
-      return
-    }
-
-    // filtered out!
-    if (job.ignore) {
-      return
-    }
-
-    if (!this.noDirRecurse && job.stat.isDirectory() && !job.readdir) {
-      if (this.readdirCache.has(job.absolute)) {
-        this[ONREADDIR](job, this.readdirCache.get(job.absolute))
-      } else {
-        this[READDIR](job)
-      }
-      if (!job.readdir) {
-        return
-      }
-    }
-
-    // we know it doesn't have an entry, because that got checked above
-    job.entry = this[ENTRY](job)
-    if (!job.entry) {
-      job.ignore = true
-      return
-    }
-
-    if (job === this[CURRENT] && !job.piped) {
-      this[PIPE](job)
-    }
-  }
-
-  [ENTRYOPT] (job) {
-    return {
-      onwarn: (code, msg, data) => this.warn(code, msg, data),
-      noPax: this.noPax,
-      cwd: this.cwd,
-      absolute: job.absolute,
-      preservePaths: this.preservePaths,
-      maxReadSize: this.maxReadSize,
-      strict: this.strict,
-      portable: this.portable,
-      linkCache: this.linkCache,
-      statCache: this.statCache,
-      noMtime: this.noMtime,
-      mtime: this.mtime,
-      prefix: this.prefix,
-    }
-  }
-
-  [ENTRY] (job) {
-    this[JOBS] += 1
-    try {
-      return new this[WRITEENTRYCLASS](job.path, this[ENTRYOPT](job))
-        .on('end', () => this[JOBDONE](job))
-        .on('error', er => this.emit('error', er))
-    } catch (er) {
-      this.emit('error', er)
-    }
-  }
-
-  [ONDRAIN] () {
-    if (this[CURRENT] && this[CURRENT].entry) {
-      this[CURRENT].entry.resume()
-    }
-  }
-
-  // like .pipe() but using super, because our write() is special
-  [PIPE] (job) {
-    job.piped = true
-
-    if (job.readdir) {
-      job.readdir.forEach(entry => {
-        const p = job.path
-        const base = p === './' ? '' : p.replace(/\/*$/, '/')
-        this[ADDFSENTRY](base + entry)
-      })
-    }
-
-    const source = job.entry
-    const zip = this.zip
-
-    if (zip) {
-      source.on('data', chunk => {
-        if (!zip.write(chunk)) {
-          source.pause()
-        }
-      })
-    } else {
-      source.on('data', chunk => {
-        if (!super.write(chunk)) {
-          source.pause()
-        }
-      })
-    }
-  }
-
-  pause () {
-    if (this.zip) {
-      this.zip.pause()
-    }
-    return super.pause()
-  }
-})
-
-class PackSync extends Pack {
-  constructor (opt) {
-    super(opt)
-    this[WRITEENTRYCLASS] = WriteEntrySync
-  }
-
-  // pause/resume are no-ops in sync streams.
-  pause () {}
-  resume () {}
-
-  [STAT] (job) {
-    const stat = this.follow ? 'statSync' : 'lstatSync'
-    this[ONSTAT](job, fs[stat](job.absolute))
-  }
-
-  [READDIR] (job, stat) {
-    this[ONREADDIR](job, fs.readdirSync(job.absolute))
-  }
-
-  // gotta get it all in this tick
-  [PIPE] (job) {
-    const source = job.entry
-    const zip = this.zip
-
-    if (job.readdir) {
-      job.readdir.forEach(entry => {
-        const p = job.path
-        const base = p === './' ? '' : p.replace(/\/*$/, '/')
-        this[ADDFSENTRY](base + entry)
-      })
-    }
-
-    if (zip) {
-      source.on('data', chunk => {
-        zip.write(chunk)
-      })
-    } else {
-      source.on('data', chunk => {
-        super[WRITE](chunk)
-      })
-    }
-  }
-}
-
-Pack.Sync = PackSync
-
-module.exports = Pack
-
-
-/***/ }),
-
-/***/ 3576:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// this[BUFFER] is the remainder of a chunk if we're waiting for
-// the full 512 bytes of a header to come in.  We will Buffer.concat()
-// it to the next write(), which is a mem copy, but a small one.
-//
-// this[QUEUE] is a Yallist of entries that haven't been emitted
-// yet this can only get filled up if the user keeps write()ing after
-// a write() returns false, or does a write() with more than one entry
-//
-// We don't buffer chunks, we always parse them and either create an
-// entry, or push it into the active entry.  The ReadEntry class knows
-// to throw data away if .ignore=true
-//
-// Shift entry off the buffer when it emits 'end', and emit 'entry' for
-// the next one in the list.
-//
-// At any time, we're pushing body chunks into the entry at WRITEENTRY,
-// and waiting for 'end' on the entry at READENTRY
-//
-// ignored entries get .resume() called on them straight away
-
-const warner = __nccwpck_require__(1634)
-const Header = __nccwpck_require__(9868)
-const EE = __nccwpck_require__(2361)
-const Yallist = __nccwpck_require__(1590)
-const maxMetaEntrySize = 1024 * 1024
-const Entry = __nccwpck_require__(1774)
-const Pax = __nccwpck_require__(476)
-const zlib = __nccwpck_require__(8925)
-const { nextTick } = __nccwpck_require__(7282)
-
-const gzipHeader = Buffer.from([0x1f, 0x8b])
-const STATE = Symbol('state')
-const WRITEENTRY = Symbol('writeEntry')
-const READENTRY = Symbol('readEntry')
-const NEXTENTRY = Symbol('nextEntry')
-const PROCESSENTRY = Symbol('processEntry')
-const EX = Symbol('extendedHeader')
-const GEX = Symbol('globalExtendedHeader')
-const META = Symbol('meta')
-const EMITMETA = Symbol('emitMeta')
-const BUFFER = Symbol('buffer')
-const QUEUE = Symbol('queue')
-const ENDED = Symbol('ended')
-const EMITTEDEND = Symbol('emittedEnd')
-const EMIT = Symbol('emit')
-const UNZIP = Symbol('unzip')
-const CONSUMECHUNK = Symbol('consumeChunk')
-const CONSUMECHUNKSUB = Symbol('consumeChunkSub')
-const CONSUMEBODY = Symbol('consumeBody')
-const CONSUMEMETA = Symbol('consumeMeta')
-const CONSUMEHEADER = Symbol('consumeHeader')
-const CONSUMING = Symbol('consuming')
-const BUFFERCONCAT = Symbol('bufferConcat')
-const MAYBEEND = Symbol('maybeEnd')
-const WRITING = Symbol('writing')
-const ABORTED = Symbol('aborted')
-const DONE = Symbol('onDone')
-const SAW_VALID_ENTRY = Symbol('sawValidEntry')
-const SAW_NULL_BLOCK = Symbol('sawNullBlock')
-const SAW_EOF = Symbol('sawEOF')
-const CLOSESTREAM = Symbol('closeStream')
-
-const noop = _ => true
-
-module.exports = warner(class Parser extends EE {
-  constructor (opt) {
-    opt = opt || {}
-    super(opt)
-
-    this.file = opt.file || ''
-
-    // set to boolean false when an entry starts.  1024 bytes of \0
-    // is technically a valid tarball, albeit a boring one.
-    this[SAW_VALID_ENTRY] = null
-
-    // these BADARCHIVE errors can't be detected early. listen on DONE.
-    this.on(DONE, _ => {
-      if (this[STATE] === 'begin' || this[SAW_VALID_ENTRY] === false) {
-        // either less than 1 block of data, or all entries were invalid.
-        // Either way, probably not even a tarball.
-        this.warn('TAR_BAD_ARCHIVE', 'Unrecognized archive format')
-      }
-    })
-
-    if (opt.ondone) {
-      this.on(DONE, opt.ondone)
-    } else {
-      this.on(DONE, _ => {
-        this.emit('prefinish')
-        this.emit('finish')
-        this.emit('end')
-      })
-    }
-
-    this.strict = !!opt.strict
-    this.maxMetaEntrySize = opt.maxMetaEntrySize || maxMetaEntrySize
-    this.filter = typeof opt.filter === 'function' ? opt.filter : noop
-
-    // have to set this so that streams are ok piping into it
-    this.writable = true
-    this.readable = false
-
-    this[QUEUE] = new Yallist()
-    this[BUFFER] = null
-    this[READENTRY] = null
-    this[WRITEENTRY] = null
-    this[STATE] = 'begin'
-    this[META] = ''
-    this[EX] = null
-    this[GEX] = null
-    this[ENDED] = false
-    this[UNZIP] = null
-    this[ABORTED] = false
-    this[SAW_NULL_BLOCK] = false
-    this[SAW_EOF] = false
-
-    this.on('end', () => this[CLOSESTREAM]())
-
-    if (typeof opt.onwarn === 'function') {
-      this.on('warn', opt.onwarn)
-    }
-    if (typeof opt.onentry === 'function') {
-      this.on('entry', opt.onentry)
-    }
-  }
-
-  [CONSUMEHEADER] (chunk, position) {
-    if (this[SAW_VALID_ENTRY] === null) {
-      this[SAW_VALID_ENTRY] = false
-    }
-    let header
-    try {
-      header = new Header(chunk, position, this[EX], this[GEX])
-    } catch (er) {
-      return this.warn('TAR_ENTRY_INVALID', er)
-    }
-
-    if (header.nullBlock) {
-      if (this[SAW_NULL_BLOCK]) {
-        this[SAW_EOF] = true
-        // ending an archive with no entries.  pointless, but legal.
-        if (this[STATE] === 'begin') {
-          this[STATE] = 'header'
-        }
-        this[EMIT]('eof')
-      } else {
-        this[SAW_NULL_BLOCK] = true
-        this[EMIT]('nullBlock')
-      }
-    } else {
-      this[SAW_NULL_BLOCK] = false
-      if (!header.cksumValid) {
-        this.warn('TAR_ENTRY_INVALID', 'checksum failure', { header })
-      } else if (!header.path) {
-        this.warn('TAR_ENTRY_INVALID', 'path is required', { header })
-      } else {
-        const type = header.type
-        if (/^(Symbolic)?Link$/.test(type) && !header.linkpath) {
-          this.warn('TAR_ENTRY_INVALID', 'linkpath required', { header })
-        } else if (!/^(Symbolic)?Link$/.test(type) && header.linkpath) {
-          this.warn('TAR_ENTRY_INVALID', 'linkpath forbidden', { header })
-        } else {
-          const entry = this[WRITEENTRY] = new Entry(header, this[EX], this[GEX])
-
-          // we do this for meta & ignored entries as well, because they
-          // are still valid tar, or else we wouldn't know to ignore them
-          if (!this[SAW_VALID_ENTRY]) {
-            if (entry.remain) {
-              // this might be the one!
-              const onend = () => {
-                if (!entry.invalid) {
-                  this[SAW_VALID_ENTRY] = true
-                }
-              }
-              entry.on('end', onend)
-            } else {
-              this[SAW_VALID_ENTRY] = true
-            }
-          }
-
-          if (entry.meta) {
-            if (entry.size > this.maxMetaEntrySize) {
-              entry.ignore = true
-              this[EMIT]('ignoredEntry', entry)
-              this[STATE] = 'ignore'
-              entry.resume()
-            } else if (entry.size > 0) {
-              this[META] = ''
-              entry.on('data', c => this[META] += c)
-              this[STATE] = 'meta'
-            }
-          } else {
-            this[EX] = null
-            entry.ignore = entry.ignore || !this.filter(entry.path, entry)
-
-            if (entry.ignore) {
-              // probably valid, just not something we care about
-              this[EMIT]('ignoredEntry', entry)
-              this[STATE] = entry.remain ? 'ignore' : 'header'
-              entry.resume()
-            } else {
-              if (entry.remain) {
-                this[STATE] = 'body'
-              } else {
-                this[STATE] = 'header'
-                entry.end()
-              }
-
-              if (!this[READENTRY]) {
-                this[QUEUE].push(entry)
-                this[NEXTENTRY]()
-              } else {
-                this[QUEUE].push(entry)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  [CLOSESTREAM] () {
-    nextTick(() => this.emit('close'))
-  }
-
-  [PROCESSENTRY] (entry) {
-    let go = true
-
-    if (!entry) {
-      this[READENTRY] = null
-      go = false
-    } else if (Array.isArray(entry)) {
-      this.emit.apply(this, entry)
-    } else {
-      this[READENTRY] = entry
-      this.emit('entry', entry)
-      if (!entry.emittedEnd) {
-        entry.on('end', _ => this[NEXTENTRY]())
-        go = false
-      }
-    }
-
-    return go
-  }
-
-  [NEXTENTRY] () {
-    do {} while (this[PROCESSENTRY](this[QUEUE].shift()))
-
-    if (!this[QUEUE].length) {
-      // At this point, there's nothing in the queue, but we may have an
-      // entry which is being consumed (readEntry).
-      // If we don't, then we definitely can handle more data.
-      // If we do, and either it's flowing, or it has never had any data
-      // written to it, then it needs more.
-      // The only other possibility is that it has returned false from a
-      // write() call, so we wait for the next drain to continue.
-      const re = this[READENTRY]
-      const drainNow = !re || re.flowing || re.size === re.remain
-      if (drainNow) {
-        if (!this[WRITING]) {
-          this.emit('drain')
-        }
-      } else {
-        re.once('drain', _ => this.emit('drain'))
-      }
-    }
-  }
-
-  [CONSUMEBODY] (chunk, position) {
-    // write up to but no  more than writeEntry.blockRemain
-    const entry = this[WRITEENTRY]
-    const br = entry.blockRemain
-    const c = (br >= chunk.length && position === 0) ? chunk
-      : chunk.slice(position, position + br)
-
-    entry.write(c)
-
-    if (!entry.blockRemain) {
-      this[STATE] = 'header'
-      this[WRITEENTRY] = null
-      entry.end()
-    }
-
-    return c.length
-  }
-
-  [CONSUMEMETA] (chunk, position) {
-    const entry = this[WRITEENTRY]
-    const ret = this[CONSUMEBODY](chunk, position)
-
-    // if we finished, then the entry is reset
-    if (!this[WRITEENTRY]) {
-      this[EMITMETA](entry)
-    }
-
-    return ret
-  }
-
-  [EMIT] (ev, data, extra) {
-    if (!this[QUEUE].length && !this[READENTRY]) {
-      this.emit(ev, data, extra)
-    } else {
-      this[QUEUE].push([ev, data, extra])
-    }
-  }
-
-  [EMITMETA] (entry) {
-    this[EMIT]('meta', this[META])
-    switch (entry.type) {
-      case 'ExtendedHeader':
-      case 'OldExtendedHeader':
-        this[EX] = Pax.parse(this[META], this[EX], false)
-        break
-
-      case 'GlobalExtendedHeader':
-        this[GEX] = Pax.parse(this[META], this[GEX], true)
-        break
-
-      case 'NextFileHasLongPath':
-      case 'OldGnuLongPath':
-        this[EX] = this[EX] || Object.create(null)
-        this[EX].path = this[META].replace(/\0.*/, '')
-        break
-
-      case 'NextFileHasLongLinkpath':
-        this[EX] = this[EX] || Object.create(null)
-        this[EX].linkpath = this[META].replace(/\0.*/, '')
-        break
-
-      /* istanbul ignore next */
-      default: throw new Error('unknown meta: ' + entry.type)
-    }
-  }
-
-  abort (error) {
-    this[ABORTED] = true
-    this.emit('abort', error)
-    // always throws, even in non-strict mode
-    this.warn('TAR_ABORT', error, { recoverable: false })
-  }
-
-  write (chunk) {
-    if (this[ABORTED]) {
-      return
-    }
-
-    // first write, might be gzipped
-    if (this[UNZIP] === null && chunk) {
-      if (this[BUFFER]) {
-        chunk = Buffer.concat([this[BUFFER], chunk])
-        this[BUFFER] = null
-      }
-      if (chunk.length < gzipHeader.length) {
-        this[BUFFER] = chunk
-        return true
-      }
-      for (let i = 0; this[UNZIP] === null && i < gzipHeader.length; i++) {
-        if (chunk[i] !== gzipHeader[i]) {
-          this[UNZIP] = false
-        }
-      }
-      if (this[UNZIP] === null) {
-        const ended = this[ENDED]
-        this[ENDED] = false
-        this[UNZIP] = new zlib.Unzip()
-        this[UNZIP].on('data', chunk => this[CONSUMECHUNK](chunk))
-        this[UNZIP].on('error', er => this.abort(er))
-        this[UNZIP].on('end', _ => {
-          this[ENDED] = true
-          this[CONSUMECHUNK]()
-        })
-        this[WRITING] = true
-        const ret = this[UNZIP][ended ? 'end' : 'write'](chunk)
-        this[WRITING] = false
-        return ret
-      }
-    }
-
-    this[WRITING] = true
-    if (this[UNZIP]) {
-      this[UNZIP].write(chunk)
-    } else {
-      this[CONSUMECHUNK](chunk)
-    }
-    this[WRITING] = false
-
-    // return false if there's a queue, or if the current entry isn't flowing
-    const ret =
-      this[QUEUE].length ? false :
-      this[READENTRY] ? this[READENTRY].flowing :
-      true
-
-    // if we have no queue, then that means a clogged READENTRY
-    if (!ret && !this[QUEUE].length) {
-      this[READENTRY].once('drain', _ => this.emit('drain'))
-    }
-
-    return ret
-  }
-
-  [BUFFERCONCAT] (c) {
-    if (c && !this[ABORTED]) {
-      this[BUFFER] = this[BUFFER] ? Buffer.concat([this[BUFFER], c]) : c
-    }
-  }
-
-  [MAYBEEND] () {
-    if (this[ENDED] &&
-        !this[EMITTEDEND] &&
-        !this[ABORTED] &&
-        !this[CONSUMING]) {
-      this[EMITTEDEND] = true
-      const entry = this[WRITEENTRY]
-      if (entry && entry.blockRemain) {
-        // truncated, likely a damaged file
-        const have = this[BUFFER] ? this[BUFFER].length : 0
-        this.warn('TAR_BAD_ARCHIVE', `Truncated input (needed ${
-          entry.blockRemain} more bytes, only ${have} available)`, { entry })
-        if (this[BUFFER]) {
-          entry.write(this[BUFFER])
-        }
-        entry.end()
-      }
-      this[EMIT](DONE)
-    }
-  }
-
-  [CONSUMECHUNK] (chunk) {
-    if (this[CONSUMING]) {
-      this[BUFFERCONCAT](chunk)
-    } else if (!chunk && !this[BUFFER]) {
-      this[MAYBEEND]()
-    } else {
-      this[CONSUMING] = true
-      if (this[BUFFER]) {
-        this[BUFFERCONCAT](chunk)
-        const c = this[BUFFER]
-        this[BUFFER] = null
-        this[CONSUMECHUNKSUB](c)
-      } else {
-        this[CONSUMECHUNKSUB](chunk)
-      }
-
-      while (this[BUFFER] &&
-          this[BUFFER].length >= 512 &&
-          !this[ABORTED] &&
-          !this[SAW_EOF]) {
-        const c = this[BUFFER]
-        this[BUFFER] = null
-        this[CONSUMECHUNKSUB](c)
-      }
-      this[CONSUMING] = false
-    }
-
-    if (!this[BUFFER] || this[ENDED]) {
-      this[MAYBEEND]()
-    }
-  }
-
-  [CONSUMECHUNKSUB] (chunk) {
-    // we know that we are in CONSUMING mode, so anything written goes into
-    // the buffer.  Advance the position and put any remainder in the buffer.
-    let position = 0
-    const length = chunk.length
-    while (position + 512 <= length && !this[ABORTED] && !this[SAW_EOF]) {
-      switch (this[STATE]) {
-        case 'begin':
-        case 'header':
-          this[CONSUMEHEADER](chunk, position)
-          position += 512
-          break
-
-        case 'ignore':
-        case 'body':
-          position += this[CONSUMEBODY](chunk, position)
-          break
-
-        case 'meta':
-          position += this[CONSUMEMETA](chunk, position)
-          break
-
-        /* istanbul ignore next */
-        default:
-          throw new Error('invalid state: ' + this[STATE])
-      }
-    }
-
-    if (position < length) {
-      if (this[BUFFER]) {
-        this[BUFFER] = Buffer.concat([chunk.slice(position), this[BUFFER]])
-      } else {
-        this[BUFFER] = chunk.slice(position)
-      }
-    }
-  }
-
-  end (chunk) {
-    if (!this[ABORTED]) {
-      if (this[UNZIP]) {
-        this[UNZIP].end(chunk)
-      } else {
-        this[ENDED] = true
-        this.write(chunk)
-      }
-    }
-  }
-})
-
-
-/***/ }),
-
-/***/ 3712:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-// A path exclusive reservation system
-// reserve([list, of, paths], fn)
-// When the fn is first in line for all its paths, it
-// is called with a cb that clears the reservation.
-//
-// Used by async unpack to avoid clobbering paths in use,
-// while still allowing maximal safe parallelization.
-
-const assert = __nccwpck_require__(9491)
-const normalize = __nccwpck_require__(2066)
-const stripSlashes = __nccwpck_require__(9812)
-const { join } = __nccwpck_require__(1017)
-
-const platform = process.env.TESTING_TAR_FAKE_PLATFORM || process.platform
-const isWindows = platform === 'win32'
-
-module.exports = () => {
-  // path => [function or Set]
-  // A Set object means a directory reservation
-  // A fn is a direct reservation on that path
-  const queues = new Map()
-
-  // fn => {paths:[path,...], dirs:[path, ...]}
-  const reservations = new Map()
-
-  // return a set of parent dirs for a given path
-  // '/a/b/c/d' -> ['/', '/a', '/a/b', '/a/b/c', '/a/b/c/d']
-  const getDirs = path => {
-    const dirs = path.split('/').slice(0, -1).reduce((set, path) => {
-      if (set.length) {
-        path = join(set[set.length - 1], path)
-      }
-      set.push(path || '/')
-      return set
-    }, [])
-    return dirs
-  }
-
-  // functions currently running
-  const running = new Set()
-
-  // return the queues for each path the function cares about
-  // fn => {paths, dirs}
-  const getQueues = fn => {
-    const res = reservations.get(fn)
-    /* istanbul ignore if - unpossible */
-    if (!res) {
-      throw new Error('function does not have any path reservations')
-    }
-    return {
-      paths: res.paths.map(path => queues.get(path)),
-      dirs: [...res.dirs].map(path => queues.get(path)),
-    }
-  }
-
-  // check if fn is first in line for all its paths, and is
-  // included in the first set for all its dir queues
-  const check = fn => {
-    const { paths, dirs } = getQueues(fn)
-    return paths.every(q => q[0] === fn) &&
-      dirs.every(q => q[0] instanceof Set && q[0].has(fn))
-  }
-
-  // run the function if it's first in line and not already running
-  const run = fn => {
-    if (running.has(fn) || !check(fn)) {
-      return false
-    }
-    running.add(fn)
-    fn(() => clear(fn))
-    return true
-  }
-
-  const clear = fn => {
-    if (!running.has(fn)) {
-      return false
-    }
-
-    const { paths, dirs } = reservations.get(fn)
-    const next = new Set()
-
-    paths.forEach(path => {
-      const q = queues.get(path)
-      assert.equal(q[0], fn)
-      if (q.length === 1) {
-        queues.delete(path)
-      } else {
-        q.shift()
-        if (typeof q[0] === 'function') {
-          next.add(q[0])
-        } else {
-          q[0].forEach(fn => next.add(fn))
-        }
-      }
-    })
-
-    dirs.forEach(dir => {
-      const q = queues.get(dir)
-      assert(q[0] instanceof Set)
-      if (q[0].size === 1 && q.length === 1) {
-        queues.delete(dir)
-      } else if (q[0].size === 1) {
-        q.shift()
-
-        // must be a function or else the Set would've been reused
-        next.add(q[0])
-      } else {
-        q[0].delete(fn)
-      }
-    })
-    running.delete(fn)
-
-    next.forEach(fn => run(fn))
-    return true
-  }
-
-  const reserve = (paths, fn) => {
-    // collide on matches across case and unicode normalization
-    // On windows, thanks to the magic of 8.3 shortnames, it is fundamentally
-    // impossible to determine whether two paths refer to the same thing on
-    // disk, without asking the kernel for a shortname.
-    // So, we just pretend that every path matches every other path here,
-    // effectively removing all parallelization on windows.
-    paths = isWindows ? ['win32 parallelization disabled'] : paths.map(p => {
-      // don't need normPath, because we skip this entirely for windows
-      return stripSlashes(join(normalize(p))).toLowerCase()
-    })
-
-    const dirs = new Set(
-      paths.map(path => getDirs(path)).reduce((a, b) => a.concat(b))
-    )
-    reservations.set(fn, { dirs, paths })
-    paths.forEach(path => {
-      const q = queues.get(path)
-      if (!q) {
-        queues.set(path, [fn])
-      } else {
-        q.push(fn)
-      }
-    })
-    dirs.forEach(dir => {
-      const q = queues.get(dir)
-      if (!q) {
-        queues.set(dir, [new Set([fn])])
-      } else if (q[q.length - 1] instanceof Set) {
-        q[q.length - 1].add(fn)
-      } else {
-        q.push(new Set([fn]))
-      }
-    })
-
-    return run(fn)
-  }
-
-  return { check, reserve }
-}
-
-
-/***/ }),
-
-/***/ 476:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const Header = __nccwpck_require__(9868)
-const path = __nccwpck_require__(1017)
-
-class Pax {
-  constructor (obj, global) {
-    this.atime = obj.atime || null
-    this.charset = obj.charset || null
-    this.comment = obj.comment || null
-    this.ctime = obj.ctime || null
-    this.gid = obj.gid || null
-    this.gname = obj.gname || null
-    this.linkpath = obj.linkpath || null
-    this.mtime = obj.mtime || null
-    this.path = obj.path || null
-    this.size = obj.size || null
-    this.uid = obj.uid || null
-    this.uname = obj.uname || null
-    this.dev = obj.dev || null
-    this.ino = obj.ino || null
-    this.nlink = obj.nlink || null
-    this.global = global || false
-  }
-
-  encode () {
-    const body = this.encodeBody()
-    if (body === '') {
-      return null
-    }
-
-    const bodyLen = Buffer.byteLength(body)
-    // round up to 512 bytes
-    // add 512 for header
-    const bufLen = 512 * Math.ceil(1 + bodyLen / 512)
-    const buf = Buffer.allocUnsafe(bufLen)
-
-    // 0-fill the header section, it might not hit every field
-    for (let i = 0; i < 512; i++) {
-      buf[i] = 0
-    }
-
-    new Header({
-      // XXX split the path
-      // then the path should be PaxHeader + basename, but less than 99,
-      // prepend with the dirname
-      path: ('PaxHeader/' + path.basename(this.path)).slice(0, 99),
-      mode: this.mode || 0o644,
-      uid: this.uid || null,
-      gid: this.gid || null,
-      size: bodyLen,
-      mtime: this.mtime || null,
-      type: this.global ? 'GlobalExtendedHeader' : 'ExtendedHeader',
-      linkpath: '',
-      uname: this.uname || '',
-      gname: this.gname || '',
-      devmaj: 0,
-      devmin: 0,
-      atime: this.atime || null,
-      ctime: this.ctime || null,
-    }).encode(buf)
-
-    buf.write(body, 512, bodyLen, 'utf8')
-
-    // null pad after the body
-    for (let i = bodyLen + 512; i < buf.length; i++) {
-      buf[i] = 0
-    }
-
-    return buf
-  }
-
-  encodeBody () {
-    return (
-      this.encodeField('path') +
-      this.encodeField('ctime') +
-      this.encodeField('atime') +
-      this.encodeField('dev') +
-      this.encodeField('ino') +
-      this.encodeField('nlink') +
-      this.encodeField('charset') +
-      this.encodeField('comment') +
-      this.encodeField('gid') +
-      this.encodeField('gname') +
-      this.encodeField('linkpath') +
-      this.encodeField('mtime') +
-      this.encodeField('size') +
-      this.encodeField('uid') +
-      this.encodeField('uname')
-    )
-  }
-
-  encodeField (field) {
-    if (this[field] === null || this[field] === undefined) {
-      return ''
-    }
-    const v = this[field] instanceof Date ? this[field].getTime() / 1000
-      : this[field]
-    const s = ' ' +
-      (field === 'dev' || field === 'ino' || field === 'nlink'
-        ? 'SCHILY.' : '') +
-      field + '=' + v + '\n'
-    const byteLen = Buffer.byteLength(s)
-    // the digits includes the length of the digits in ascii base-10
-    // so if it's 9 characters, then adding 1 for the 9 makes it 10
-    // which makes it 11 chars.
-    let digits = Math.floor(Math.log(byteLen) / Math.log(10)) + 1
-    if (byteLen + digits >= Math.pow(10, digits)) {
-      digits += 1
-    }
-    const len = digits + byteLen
-    return len + s
-  }
-}
-
-Pax.parse = (string, ex, g) => new Pax(merge(parseKV(string), ex), g)
-
-const merge = (a, b) =>
-  b ? Object.keys(a).reduce((s, k) => (s[k] = a[k], s), b) : a
-
-const parseKV = string =>
-  string
-    .replace(/\n$/, '')
-    .split('\n')
-    .reduce(parseKVLine, Object.create(null))
-
-const parseKVLine = (set, line) => {
-  const n = parseInt(line, 10)
-
-  // XXX Values with \n in them will fail this.
-  // Refactor to not be a naive line-by-line parse.
-  if (n !== Buffer.byteLength(line) + 1) {
-    return set
-  }
-
-  line = line.slice((n + ' ').length)
-  const kv = line.split('=')
-  const k = kv.shift().replace(/^SCHILY\.(dev|ino|nlink)/, '$1')
-  if (!k) {
-    return set
-  }
-
-  const v = kv.join('=')
-  set[k] = /^([A-Z]+\.)?([mac]|birth|creation)time$/.test(k)
-    ? new Date(v * 1000)
-    : /^[0-9]+$/.test(v) ? +v
-    : v
-  return set
-}
-
-module.exports = Pax
-
-
-/***/ }),
-
-/***/ 1774:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const { Minipass } = __nccwpck_require__(8759)
-const normPath = __nccwpck_require__(8407)
-
-const SLURP = Symbol('slurp')
-module.exports = class ReadEntry extends Minipass {
-  constructor (header, ex, gex) {
-    super()
-    // read entries always start life paused.  this is to avoid the
-    // situation where Minipass's auto-ending empty streams results
-    // in an entry ending before we're ready for it.
-    this.pause()
-    this.extended = ex
-    this.globalExtended = gex
-    this.header = header
-    this.startBlockSize = 512 * Math.ceil(header.size / 512)
-    this.blockRemain = this.startBlockSize
-    this.remain = header.size
-    this.type = header.type
-    this.meta = false
-    this.ignore = false
-    switch (this.type) {
-      case 'File':
-      case 'OldFile':
-      case 'Link':
-      case 'SymbolicLink':
-      case 'CharacterDevice':
-      case 'BlockDevice':
-      case 'Directory':
-      case 'FIFO':
-      case 'ContiguousFile':
-      case 'GNUDumpDir':
-        break
-
-      case 'NextFileHasLongLinkpath':
-      case 'NextFileHasLongPath':
-      case 'OldGnuLongPath':
-      case 'GlobalExtendedHeader':
-      case 'ExtendedHeader':
-      case 'OldExtendedHeader':
-        this.meta = true
-        break
-
-      // NOTE: gnutar and bsdtar treat unrecognized types as 'File'
-      // it may be worth doing the same, but with a warning.
-      default:
-        this.ignore = true
-    }
-
-    this.path = normPath(header.path)
-    this.mode = header.mode
-    if (this.mode) {
-      this.mode = this.mode & 0o7777
-    }
-    this.uid = header.uid
-    this.gid = header.gid
-    this.uname = header.uname
-    this.gname = header.gname
-    this.size = header.size
-    this.mtime = header.mtime
-    this.atime = header.atime
-    this.ctime = header.ctime
-    this.linkpath = normPath(header.linkpath)
-    this.uname = header.uname
-    this.gname = header.gname
-
-    if (ex) {
-      this[SLURP](ex)
-    }
-    if (gex) {
-      this[SLURP](gex, true)
-    }
-  }
-
-  write (data) {
-    const writeLen = data.length
-    if (writeLen > this.blockRemain) {
-      throw new Error('writing more to entry than is appropriate')
-    }
-
-    const r = this.remain
-    const br = this.blockRemain
-    this.remain = Math.max(0, r - writeLen)
-    this.blockRemain = Math.max(0, br - writeLen)
-    if (this.ignore) {
-      return true
-    }
-
-    if (r >= writeLen) {
-      return super.write(data)
-    }
-
-    // r < writeLen
-    return super.write(data.slice(0, r))
-  }
-
-  [SLURP] (ex, global) {
-    for (const k in ex) {
-      // we slurp in everything except for the path attribute in
-      // a global extended header, because that's weird.
-      if (ex[k] !== null && ex[k] !== undefined &&
-          !(global && k === 'path')) {
-        this[k] = k === 'path' || k === 'linkpath' ? normPath(ex[k]) : ex[k]
-      }
-    }
-  }
-}
-
-
-/***/ }),
-
-/***/ 6562:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// tar -r
-const hlo = __nccwpck_require__(8052)
-const Pack = __nccwpck_require__(5745)
-const fs = __nccwpck_require__(7147)
-const fsm = __nccwpck_require__(1354)
-const t = __nccwpck_require__(7991)
-const path = __nccwpck_require__(1017)
-
-// starting at the head of the file, read a Header
-// If the checksum is invalid, that's our position to start writing
-// If it is, jump forward by the specified size (round up to 512)
-// and try again.
-// Write the new Pack stream starting there.
-
-const Header = __nccwpck_require__(9868)
-
-module.exports = (opt_, files, cb) => {
-  const opt = hlo(opt_)
-
-  if (!opt.file) {
-    throw new TypeError('file is required')
-  }
-
-  if (opt.gzip) {
-    throw new TypeError('cannot append to compressed archives')
-  }
-
-  if (!files || !Array.isArray(files) || !files.length) {
-    throw new TypeError('no files or directories specified')
-  }
-
-  files = Array.from(files)
-
-  return opt.sync ? replaceSync(opt, files)
-    : replace(opt, files, cb)
-}
-
-const replaceSync = (opt, files) => {
-  const p = new Pack.Sync(opt)
-
-  let threw = true
-  let fd
-  let position
-
-  try {
-    try {
-      fd = fs.openSync(opt.file, 'r+')
-    } catch (er) {
-      if (er.code === 'ENOENT') {
-        fd = fs.openSync(opt.file, 'w+')
-      } else {
-        throw er
-      }
-    }
-
-    const st = fs.fstatSync(fd)
-    const headBuf = Buffer.alloc(512)
-
-    POSITION: for (position = 0; position < st.size; position += 512) {
-      for (let bufPos = 0, bytes = 0; bufPos < 512; bufPos += bytes) {
-        bytes = fs.readSync(
-          fd, headBuf, bufPos, headBuf.length - bufPos, position + bufPos
-        )
-
-        if (position === 0 && headBuf[0] === 0x1f && headBuf[1] === 0x8b) {
-          throw new Error('cannot append to compressed archives')
-        }
-
-        if (!bytes) {
-          break POSITION
-        }
-      }
-
-      const h = new Header(headBuf)
-      if (!h.cksumValid) {
-        break
-      }
-      const entryBlockSize = 512 * Math.ceil(h.size / 512)
-      if (position + entryBlockSize + 512 > st.size) {
-        break
-      }
-      // the 512 for the header we just parsed will be added as well
-      // also jump ahead all the blocks for the body
-      position += entryBlockSize
-      if (opt.mtimeCache) {
-        opt.mtimeCache.set(h.path, h.mtime)
-      }
-    }
-    threw = false
-
-    streamSync(opt, p, position, fd, files)
-  } finally {
-    if (threw) {
-      try {
-        fs.closeSync(fd)
-      } catch (er) {}
-    }
-  }
-}
-
-const streamSync = (opt, p, position, fd, files) => {
-  const stream = new fsm.WriteStreamSync(opt.file, {
-    fd: fd,
-    start: position,
-  })
-  p.pipe(stream)
-  addFilesSync(p, files)
-}
-
-const replace = (opt, files, cb) => {
-  files = Array.from(files)
-  const p = new Pack(opt)
-
-  const getPos = (fd, size, cb_) => {
-    const cb = (er, pos) => {
-      if (er) {
-        fs.close(fd, _ => cb_(er))
-      } else {
-        cb_(null, pos)
-      }
-    }
-
-    let position = 0
-    if (size === 0) {
-      return cb(null, 0)
-    }
-
-    let bufPos = 0
-    const headBuf = Buffer.alloc(512)
-    const onread = (er, bytes) => {
-      if (er) {
-        return cb(er)
-      }
-      bufPos += bytes
-      if (bufPos < 512 && bytes) {
-        return fs.read(
-          fd, headBuf, bufPos, headBuf.length - bufPos,
-          position + bufPos, onread
-        )
-      }
-
-      if (position === 0 && headBuf[0] === 0x1f && headBuf[1] === 0x8b) {
-        return cb(new Error('cannot append to compressed archives'))
-      }
-
-      // truncated header
-      if (bufPos < 512) {
-        return cb(null, position)
-      }
-
-      const h = new Header(headBuf)
-      if (!h.cksumValid) {
-        return cb(null, position)
-      }
-
-      const entryBlockSize = 512 * Math.ceil(h.size / 512)
-      if (position + entryBlockSize + 512 > size) {
-        return cb(null, position)
-      }
-
-      position += entryBlockSize + 512
-      if (position >= size) {
-        return cb(null, position)
-      }
-
-      if (opt.mtimeCache) {
-        opt.mtimeCache.set(h.path, h.mtime)
-      }
-      bufPos = 0
-      fs.read(fd, headBuf, 0, 512, position, onread)
-    }
-    fs.read(fd, headBuf, 0, 512, position, onread)
-  }
-
-  const promise = new Promise((resolve, reject) => {
-    p.on('error', reject)
-    let flag = 'r+'
-    const onopen = (er, fd) => {
-      if (er && er.code === 'ENOENT' && flag === 'r+') {
-        flag = 'w+'
-        return fs.open(opt.file, flag, onopen)
-      }
-
-      if (er) {
-        return reject(er)
-      }
-
-      fs.fstat(fd, (er, st) => {
-        if (er) {
-          return fs.close(fd, () => reject(er))
-        }
-
-        getPos(fd, st.size, (er, position) => {
-          if (er) {
-            return reject(er)
-          }
-          const stream = new fsm.WriteStream(opt.file, {
-            fd: fd,
-            start: position,
-          })
-          p.pipe(stream)
-          stream.on('error', reject)
-          stream.on('close', resolve)
-          addFilesAsync(p, files)
-        })
-      })
-    }
-    fs.open(opt.file, flag, onopen)
-  })
-
-  return cb ? promise.then(cb, cb) : promise
-}
-
-const addFilesSync = (p, files) => {
-  files.forEach(file => {
-    if (file.charAt(0) === '@') {
-      t({
-        file: path.resolve(p.cwd, file.slice(1)),
-        sync: true,
-        noResume: true,
-        onentry: entry => p.add(entry),
-      })
-    } else {
-      p.add(file)
-    }
-  })
-  p.end()
-}
-
-const addFilesAsync = (p, files) => {
-  while (files.length) {
-    const file = files.shift()
-    if (file.charAt(0) === '@') {
-      return t({
-        file: path.resolve(p.cwd, file.slice(1)),
-        noResume: true,
-        onentry: entry => p.add(entry),
-      }).then(_ => addFilesAsync(p, files))
-    } else {
-      p.add(file)
-    }
-  }
-  p.end()
-}
-
-
-/***/ }),
-
-/***/ 2190:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-// unix absolute paths are also absolute on win32, so we use this for both
-const { isAbsolute, parse } = (__nccwpck_require__(1017).win32)
-
-// returns [root, stripped]
-// Note that windows will think that //x/y/z/a has a "root" of //x/y, and in
-// those cases, we want to sanitize it to x/y/z/a, not z/a, so we strip /
-// explicitly if it's the first character.
-// drive-specific relative paths on Windows get their root stripped off even
-// though they are not absolute, so `c:../foo` becomes ['c:', '../foo']
-module.exports = path => {
-  let r = ''
-
-  let parsed = parse(path)
-  while (isAbsolute(path) || parsed.root) {
-    // windows will think that //x/y/z has a "root" of //x/y/
-    // but strip the //?/C:/ off of //?/C:/path
-    const root = path.charAt(0) === '/' && path.slice(0, 4) !== '//?/' ? '/'
-      : parsed.root
-    path = path.slice(root.length)
-    r += root
-    parsed = parse(path)
-  }
-  return [r, path]
-}
-
-
-/***/ }),
-
-/***/ 9812:
-/***/ ((module) => {
-
-// warning: extremely hot code path.
-// This has been meticulously optimized for use
-// within npm install on large package trees.
-// Do not edit without careful benchmarking.
-module.exports = str => {
-  let i = str.length - 1
-  let slashesStart = -1
-  while (i > -1 && str.charAt(i) === '/') {
-    slashesStart = i
-    i--
-  }
-  return slashesStart === -1 ? str : str.slice(0, slashesStart)
-}
-
-
-/***/ }),
-
-/***/ 2976:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-// map types from key to human-friendly name
-exports.name = new Map([
-  ['0', 'File'],
-  // same as File
-  ['', 'OldFile'],
-  ['1', 'Link'],
-  ['2', 'SymbolicLink'],
-  // Devices and FIFOs aren't fully supported
-  // they are parsed, but skipped when unpacking
-  ['3', 'CharacterDevice'],
-  ['4', 'BlockDevice'],
-  ['5', 'Directory'],
-  ['6', 'FIFO'],
-  // same as File
-  ['7', 'ContiguousFile'],
-  // pax headers
-  ['g', 'GlobalExtendedHeader'],
-  ['x', 'ExtendedHeader'],
-  // vendor-specific stuff
-  // skip
-  ['A', 'SolarisACL'],
-  // like 5, but with data, which should be skipped
-  ['D', 'GNUDumpDir'],
-  // metadata only, skip
-  ['I', 'Inode'],
-  // data = link path of next file
-  ['K', 'NextFileHasLongLinkpath'],
-  // data = path of next file
-  ['L', 'NextFileHasLongPath'],
-  // skip
-  ['M', 'ContinuationFile'],
-  // like L
-  ['N', 'OldGnuLongPath'],
-  // skip
-  ['S', 'SparseFile'],
-  // skip
-  ['V', 'TapeVolumeHeader'],
-  // like x
-  ['X', 'OldExtendedHeader'],
-])
-
-// map the other direction
-exports.code = new Map(Array.from(exports.name).map(kv => [kv[1], kv[0]]))
-
-
-/***/ }),
-
-/***/ 9800:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// the PEND/UNPEND stuff tracks whether we're ready to emit end/close yet.
-// but the path reservations are required to avoid race conditions where
-// parallelized unpack ops may mess with one another, due to dependencies
-// (like a Link depending on its target) or destructive operations (like
-// clobbering an fs object to create one of a different type.)
-
-const assert = __nccwpck_require__(9491)
-const Parser = __nccwpck_require__(3576)
-const fs = __nccwpck_require__(7147)
-const fsm = __nccwpck_require__(1354)
-const path = __nccwpck_require__(1017)
-const mkdir = __nccwpck_require__(7994)
-const wc = __nccwpck_require__(3856)
-const pathReservations = __nccwpck_require__(3712)
-const stripAbsolutePath = __nccwpck_require__(2190)
-const normPath = __nccwpck_require__(8407)
-const stripSlash = __nccwpck_require__(9812)
-const normalize = __nccwpck_require__(2066)
-
-const ONENTRY = Symbol('onEntry')
-const CHECKFS = Symbol('checkFs')
-const CHECKFS2 = Symbol('checkFs2')
-const PRUNECACHE = Symbol('pruneCache')
-const ISREUSABLE = Symbol('isReusable')
-const MAKEFS = Symbol('makeFs')
-const FILE = Symbol('file')
-const DIRECTORY = Symbol('directory')
-const LINK = Symbol('link')
-const SYMLINK = Symbol('symlink')
-const HARDLINK = Symbol('hardlink')
-const UNSUPPORTED = Symbol('unsupported')
-const CHECKPATH = Symbol('checkPath')
-const MKDIR = Symbol('mkdir')
-const ONERROR = Symbol('onError')
-const PENDING = Symbol('pending')
-const PEND = Symbol('pend')
-const UNPEND = Symbol('unpend')
-const ENDED = Symbol('ended')
-const MAYBECLOSE = Symbol('maybeClose')
-const SKIP = Symbol('skip')
-const DOCHOWN = Symbol('doChown')
-const UID = Symbol('uid')
-const GID = Symbol('gid')
-const CHECKED_CWD = Symbol('checkedCwd')
-const crypto = __nccwpck_require__(6113)
-const getFlag = __nccwpck_require__(9592)
-const platform = process.env.TESTING_TAR_FAKE_PLATFORM || process.platform
-const isWindows = platform === 'win32'
-
-// Unlinks on Windows are not atomic.
-//
-// This means that if you have a file entry, followed by another
-// file entry with an identical name, and you cannot re-use the file
-// (because it's a hardlink, or because unlink:true is set, or it's
-// Windows, which does not have useful nlink values), then the unlink
-// will be committed to the disk AFTER the new file has been written
-// over the old one, deleting the new file.
-//
-// To work around this, on Windows systems, we rename the file and then
-// delete the renamed file.  It's a sloppy kludge, but frankly, I do not
-// know of a better way to do this, given windows' non-atomic unlink
-// semantics.
-//
-// See: https://github.com/npm/node-tar/issues/183
-/* istanbul ignore next */
-const unlinkFile = (path, cb) => {
-  if (!isWindows) {
-    return fs.unlink(path, cb)
-  }
-
-  const name = path + '.DELETE.' + crypto.randomBytes(16).toString('hex')
-  fs.rename(path, name, er => {
-    if (er) {
-      return cb(er)
-    }
-    fs.unlink(name, cb)
-  })
-}
-
-/* istanbul ignore next */
-const unlinkFileSync = path => {
-  if (!isWindows) {
-    return fs.unlinkSync(path)
-  }
-
-  const name = path + '.DELETE.' + crypto.randomBytes(16).toString('hex')
-  fs.renameSync(path, name)
-  fs.unlinkSync(name)
-}
-
-// this.gid, entry.gid, this.processUid
-const uint32 = (a, b, c) =>
-  a === a >>> 0 ? a
-  : b === b >>> 0 ? b
-  : c
-
-// clear the cache if it's a case-insensitive unicode-squashing match.
-// we can't know if the current file system is case-sensitive or supports
-// unicode fully, so we check for similarity on the maximally compatible
-// representation.  Err on the side of pruning, since all it's doing is
-// preventing lstats, and it's not the end of the world if we get a false
-// positive.
-// Note that on windows, we always drop the entire cache whenever a
-// symbolic link is encountered, because 8.3 filenames are impossible
-// to reason about, and collisions are hazards rather than just failures.
-const cacheKeyNormalize = path => stripSlash(normPath(normalize(path)))
-  .toLowerCase()
-
-const pruneCache = (cache, abs) => {
-  abs = cacheKeyNormalize(abs)
-  for (const path of cache.keys()) {
-    const pnorm = cacheKeyNormalize(path)
-    if (pnorm === abs || pnorm.indexOf(abs + '/') === 0) {
-      cache.delete(path)
-    }
-  }
-}
-
-const dropCache = cache => {
-  for (const key of cache.keys()) {
-    cache.delete(key)
-  }
-}
-
-class Unpack extends Parser {
-  constructor (opt) {
-    if (!opt) {
-      opt = {}
-    }
-
-    opt.ondone = _ => {
-      this[ENDED] = true
-      this[MAYBECLOSE]()
-    }
-
-    super(opt)
-
-    this[CHECKED_CWD] = false
-
-    this.reservations = pathReservations()
-
-    this.transform = typeof opt.transform === 'function' ? opt.transform : null
-
-    this.writable = true
-    this.readable = false
-
-    this[PENDING] = 0
-    this[ENDED] = false
-
-    this.dirCache = opt.dirCache || new Map()
-
-    if (typeof opt.uid === 'number' || typeof opt.gid === 'number') {
-      // need both or neither
-      if (typeof opt.uid !== 'number' || typeof opt.gid !== 'number') {
-        throw new TypeError('cannot set owner without number uid and gid')
-      }
-      if (opt.preserveOwner) {
-        throw new TypeError(
-          'cannot preserve owner in archive and also set owner explicitly')
-      }
-      this.uid = opt.uid
-      this.gid = opt.gid
-      this.setOwner = true
-    } else {
-      this.uid = null
-      this.gid = null
-      this.setOwner = false
-    }
-
-    // default true for root
-    if (opt.preserveOwner === undefined && typeof opt.uid !== 'number') {
-      this.preserveOwner = process.getuid && process.getuid() === 0
-    } else {
-      this.preserveOwner = !!opt.preserveOwner
-    }
-
-    this.processUid = (this.preserveOwner || this.setOwner) && process.getuid ?
-      process.getuid() : null
-    this.processGid = (this.preserveOwner || this.setOwner) && process.getgid ?
-      process.getgid() : null
-
-    // mostly just for testing, but useful in some cases.
-    // Forcibly trigger a chown on every entry, no matter what
-    this.forceChown = opt.forceChown === true
-
-    // turn ><?| in filenames into 0xf000-higher encoded forms
-    this.win32 = !!opt.win32 || isWindows
-
-    // do not unpack over files that are newer than what's in the archive
-    this.newer = !!opt.newer
-
-    // do not unpack over ANY files
-    this.keep = !!opt.keep
-
-    // do not set mtime/atime of extracted entries
-    this.noMtime = !!opt.noMtime
-
-    // allow .., absolute path entries, and unpacking through symlinks
-    // without this, warn and skip .., relativize absolutes, and error
-    // on symlinks in extraction path
-    this.preservePaths = !!opt.preservePaths
-
-    // unlink files and links before writing. This breaks existing hard
-    // links, and removes symlink directories rather than erroring
-    this.unlink = !!opt.unlink
-
-    this.cwd = normPath(path.resolve(opt.cwd || process.cwd()))
-    this.strip = +opt.strip || 0
-    // if we're not chmodding, then we don't need the process umask
-    this.processUmask = opt.noChmod ? 0 : process.umask()
-    this.umask = typeof opt.umask === 'number' ? opt.umask : this.processUmask
-
-    // default mode for dirs created as parents
-    this.dmode = opt.dmode || (0o0777 & (~this.umask))
-    this.fmode = opt.fmode || (0o0666 & (~this.umask))
-
-    this.on('entry', entry => this[ONENTRY](entry))
-  }
-
-  // a bad or damaged archive is a warning for Parser, but an error
-  // when extracting.  Mark those errors as unrecoverable, because
-  // the Unpack contract cannot be met.
-  warn (code, msg, data = {}) {
-    if (code === 'TAR_BAD_ARCHIVE' || code === 'TAR_ABORT') {
-      data.recoverable = false
-    }
-    return super.warn(code, msg, data)
-  }
-
-  [MAYBECLOSE] () {
-    if (this[ENDED] && this[PENDING] === 0) {
-      this.emit('prefinish')
-      this.emit('finish')
-      this.emit('end')
-    }
-  }
-
-  [CHECKPATH] (entry) {
-    if (this.strip) {
-      const parts = normPath(entry.path).split('/')
-      if (parts.length < this.strip) {
-        return false
-      }
-      entry.path = parts.slice(this.strip).join('/')
-
-      if (entry.type === 'Link') {
-        const linkparts = normPath(entry.linkpath).split('/')
-        if (linkparts.length >= this.strip) {
-          entry.linkpath = linkparts.slice(this.strip).join('/')
-        } else {
-          return false
-        }
-      }
-    }
-
-    if (!this.preservePaths) {
-      const p = normPath(entry.path)
-      const parts = p.split('/')
-      if (parts.includes('..') || isWindows && /^[a-z]:\.\.$/i.test(parts[0])) {
-        this.warn('TAR_ENTRY_ERROR', `path contains '..'`, {
-          entry,
-          path: p,
-        })
-        return false
-      }
-
-      // strip off the root
-      const [root, stripped] = stripAbsolutePath(p)
-      if (root) {
-        entry.path = stripped
-        this.warn('TAR_ENTRY_INFO', `stripping ${root} from absolute path`, {
-          entry,
-          path: p,
-        })
-      }
-    }
-
-    if (path.isAbsolute(entry.path)) {
-      entry.absolute = normPath(path.resolve(entry.path))
-    } else {
-      entry.absolute = normPath(path.resolve(this.cwd, entry.path))
-    }
-
-    // if we somehow ended up with a path that escapes the cwd, and we are
-    // not in preservePaths mode, then something is fishy!  This should have
-    // been prevented above, so ignore this for coverage.
-    /* istanbul ignore if - defense in depth */
-    if (!this.preservePaths &&
-        entry.absolute.indexOf(this.cwd + '/') !== 0 &&
-        entry.absolute !== this.cwd) {
-      this.warn('TAR_ENTRY_ERROR', 'path escaped extraction target', {
-        entry,
-        path: normPath(entry.path),
-        resolvedPath: entry.absolute,
-        cwd: this.cwd,
-      })
-      return false
-    }
-
-    // an archive can set properties on the extraction directory, but it
-    // may not replace the cwd with a different kind of thing entirely.
-    if (entry.absolute === this.cwd &&
-        entry.type !== 'Directory' &&
-        entry.type !== 'GNUDumpDir') {
-      return false
-    }
-
-    // only encode : chars that aren't drive letter indicators
-    if (this.win32) {
-      const { root: aRoot } = path.win32.parse(entry.absolute)
-      entry.absolute = aRoot + wc.encode(entry.absolute.slice(aRoot.length))
-      const { root: pRoot } = path.win32.parse(entry.path)
-      entry.path = pRoot + wc.encode(entry.path.slice(pRoot.length))
-    }
-
-    return true
-  }
-
-  [ONENTRY] (entry) {
-    if (!this[CHECKPATH](entry)) {
-      return entry.resume()
-    }
-
-    assert.equal(typeof entry.absolute, 'string')
-
-    switch (entry.type) {
-      case 'Directory':
-      case 'GNUDumpDir':
-        if (entry.mode) {
-          entry.mode = entry.mode | 0o700
-        }
-
-      // eslint-disable-next-line no-fallthrough
-      case 'File':
-      case 'OldFile':
-      case 'ContiguousFile':
-      case 'Link':
-      case 'SymbolicLink':
-        return this[CHECKFS](entry)
-
-      case 'CharacterDevice':
-      case 'BlockDevice':
-      case 'FIFO':
-      default:
-        return this[UNSUPPORTED](entry)
-    }
-  }
-
-  [ONERROR] (er, entry) {
-    // Cwd has to exist, or else nothing works. That's serious.
-    // Other errors are warnings, which raise the error in strict
-    // mode, but otherwise continue on.
-    if (er.name === 'CwdError') {
-      this.emit('error', er)
-    } else {
-      this.warn('TAR_ENTRY_ERROR', er, { entry })
-      this[UNPEND]()
-      entry.resume()
-    }
-  }
-
-  [MKDIR] (dir, mode, cb) {
-    mkdir(normPath(dir), {
-      uid: this.uid,
-      gid: this.gid,
-      processUid: this.processUid,
-      processGid: this.processGid,
-      umask: this.processUmask,
-      preserve: this.preservePaths,
-      unlink: this.unlink,
-      cache: this.dirCache,
-      cwd: this.cwd,
-      mode: mode,
-      noChmod: this.noChmod,
-    }, cb)
-  }
-
-  [DOCHOWN] (entry) {
-    // in preserve owner mode, chown if the entry doesn't match process
-    // in set owner mode, chown if setting doesn't match process
-    return this.forceChown ||
-      this.preserveOwner &&
-      (typeof entry.uid === 'number' && entry.uid !== this.processUid ||
-        typeof entry.gid === 'number' && entry.gid !== this.processGid)
-      ||
-      (typeof this.uid === 'number' && this.uid !== this.processUid ||
-        typeof this.gid === 'number' && this.gid !== this.processGid)
-  }
-
-  [UID] (entry) {
-    return uint32(this.uid, entry.uid, this.processUid)
-  }
-
-  [GID] (entry) {
-    return uint32(this.gid, entry.gid, this.processGid)
-  }
-
-  [FILE] (entry, fullyDone) {
-    const mode = entry.mode & 0o7777 || this.fmode
-    const stream = new fsm.WriteStream(entry.absolute, {
-      flags: getFlag(entry.size),
-      mode: mode,
-      autoClose: false,
-    })
-    stream.on('error', er => {
-      if (stream.fd) {
-        fs.close(stream.fd, () => {})
-      }
-
-      // flush all the data out so that we aren't left hanging
-      // if the error wasn't actually fatal.  otherwise the parse
-      // is blocked, and we never proceed.
-      stream.write = () => true
-      this[ONERROR](er, entry)
-      fullyDone()
-    })
-
-    let actions = 1
-    const done = er => {
-      if (er) {
-        /* istanbul ignore else - we should always have a fd by now */
-        if (stream.fd) {
-          fs.close(stream.fd, () => {})
-        }
-
-        this[ONERROR](er, entry)
-        fullyDone()
-        return
-      }
-
-      if (--actions === 0) {
-        fs.close(stream.fd, er => {
-          if (er) {
-            this[ONERROR](er, entry)
-          } else {
-            this[UNPEND]()
-          }
-          fullyDone()
-        })
-      }
-    }
-
-    stream.on('finish', _ => {
-      // if futimes fails, try utimes
-      // if utimes fails, fail with the original error
-      // same for fchown/chown
-      const abs = entry.absolute
-      const fd = stream.fd
-
-      if (entry.mtime && !this.noMtime) {
-        actions++
-        const atime = entry.atime || new Date()
-        const mtime = entry.mtime
-        fs.futimes(fd, atime, mtime, er =>
-          er ? fs.utimes(abs, atime, mtime, er2 => done(er2 && er))
-          : done())
-      }
-
-      if (this[DOCHOWN](entry)) {
-        actions++
-        const uid = this[UID](entry)
-        const gid = this[GID](entry)
-        fs.fchown(fd, uid, gid, er =>
-          er ? fs.chown(abs, uid, gid, er2 => done(er2 && er))
-          : done())
-      }
-
-      done()
-    })
-
-    const tx = this.transform ? this.transform(entry) || entry : entry
-    if (tx !== entry) {
-      tx.on('error', er => {
-        this[ONERROR](er, entry)
-        fullyDone()
-      })
-      entry.pipe(tx)
-    }
-    tx.pipe(stream)
-  }
-
-  [DIRECTORY] (entry, fullyDone) {
-    const mode = entry.mode & 0o7777 || this.dmode
-    this[MKDIR](entry.absolute, mode, er => {
-      if (er) {
-        this[ONERROR](er, entry)
-        fullyDone()
-        return
-      }
-
-      let actions = 1
-      const done = _ => {
-        if (--actions === 0) {
-          fullyDone()
-          this[UNPEND]()
-          entry.resume()
-        }
-      }
-
-      if (entry.mtime && !this.noMtime) {
-        actions++
-        fs.utimes(entry.absolute, entry.atime || new Date(), entry.mtime, done)
-      }
-
-      if (this[DOCHOWN](entry)) {
-        actions++
-        fs.chown(entry.absolute, this[UID](entry), this[GID](entry), done)
-      }
-
-      done()
-    })
-  }
-
-  [UNSUPPORTED] (entry) {
-    entry.unsupported = true
-    this.warn('TAR_ENTRY_UNSUPPORTED',
-      `unsupported entry type: ${entry.type}`, { entry })
-    entry.resume()
-  }
-
-  [SYMLINK] (entry, done) {
-    this[LINK](entry, entry.linkpath, 'symlink', done)
-  }
-
-  [HARDLINK] (entry, done) {
-    const linkpath = normPath(path.resolve(this.cwd, entry.linkpath))
-    this[LINK](entry, linkpath, 'link', done)
-  }
-
-  [PEND] () {
-    this[PENDING]++
-  }
-
-  [UNPEND] () {
-    this[PENDING]--
-    this[MAYBECLOSE]()
-  }
-
-  [SKIP] (entry) {
-    this[UNPEND]()
-    entry.resume()
-  }
-
-  // Check if we can reuse an existing filesystem entry safely and
-  // overwrite it, rather than unlinking and recreating
-  // Windows doesn't report a useful nlink, so we just never reuse entries
-  [ISREUSABLE] (entry, st) {
-    return entry.type === 'File' &&
-      !this.unlink &&
-      st.isFile() &&
-      st.nlink <= 1 &&
-      !isWindows
-  }
-
-  // check if a thing is there, and if so, try to clobber it
-  [CHECKFS] (entry) {
-    this[PEND]()
-    const paths = [entry.path]
-    if (entry.linkpath) {
-      paths.push(entry.linkpath)
-    }
-    this.reservations.reserve(paths, done => this[CHECKFS2](entry, done))
-  }
-
-  [PRUNECACHE] (entry) {
-    // if we are not creating a directory, and the path is in the dirCache,
-    // then that means we are about to delete the directory we created
-    // previously, and it is no longer going to be a directory, and neither
-    // is any of its children.
-    // If a symbolic link is encountered, all bets are off.  There is no
-    // reasonable way to sanitize the cache in such a way we will be able to
-    // avoid having filesystem collisions.  If this happens with a non-symlink
-    // entry, it'll just fail to unpack, but a symlink to a directory, using an
-    // 8.3 shortname or certain unicode attacks, can evade detection and lead
-    // to arbitrary writes to anywhere on the system.
-    if (entry.type === 'SymbolicLink') {
-      dropCache(this.dirCache)
-    } else if (entry.type !== 'Directory') {
-      pruneCache(this.dirCache, entry.absolute)
-    }
-  }
-
-  [CHECKFS2] (entry, fullyDone) {
-    this[PRUNECACHE](entry)
-
-    const done = er => {
-      this[PRUNECACHE](entry)
-      fullyDone(er)
-    }
-
-    const checkCwd = () => {
-      this[MKDIR](this.cwd, this.dmode, er => {
-        if (er) {
-          this[ONERROR](er, entry)
-          done()
-          return
-        }
-        this[CHECKED_CWD] = true
-        start()
-      })
-    }
-
-    const start = () => {
-      if (entry.absolute !== this.cwd) {
-        const parent = normPath(path.dirname(entry.absolute))
-        if (parent !== this.cwd) {
-          return this[MKDIR](parent, this.dmode, er => {
-            if (er) {
-              this[ONERROR](er, entry)
-              done()
-              return
-            }
-            afterMakeParent()
-          })
-        }
-      }
-      afterMakeParent()
-    }
-
-    const afterMakeParent = () => {
-      fs.lstat(entry.absolute, (lstatEr, st) => {
-        if (st && (this.keep || this.newer && st.mtime > entry.mtime)) {
-          this[SKIP](entry)
-          done()
-          return
-        }
-        if (lstatEr || this[ISREUSABLE](entry, st)) {
-          return this[MAKEFS](null, entry, done)
-        }
-
-        if (st.isDirectory()) {
-          if (entry.type === 'Directory') {
-            const needChmod = !this.noChmod &&
-              entry.mode &&
-              (st.mode & 0o7777) !== entry.mode
-            const afterChmod = er => this[MAKEFS](er, entry, done)
-            if (!needChmod) {
-              return afterChmod()
-            }
-            return fs.chmod(entry.absolute, entry.mode, afterChmod)
-          }
-          // Not a dir entry, have to remove it.
-          // NB: the only way to end up with an entry that is the cwd
-          // itself, in such a way that == does not detect, is a
-          // tricky windows absolute path with UNC or 8.3 parts (and
-          // preservePaths:true, or else it will have been stripped).
-          // In that case, the user has opted out of path protections
-          // explicitly, so if they blow away the cwd, c'est la vie.
-          if (entry.absolute !== this.cwd) {
-            return fs.rmdir(entry.absolute, er =>
-              this[MAKEFS](er, entry, done))
-          }
-        }
-
-        // not a dir, and not reusable
-        // don't remove if the cwd, we want that error
-        if (entry.absolute === this.cwd) {
-          return this[MAKEFS](null, entry, done)
-        }
-
-        unlinkFile(entry.absolute, er =>
-          this[MAKEFS](er, entry, done))
-      })
-    }
-
-    if (this[CHECKED_CWD]) {
-      start()
-    } else {
-      checkCwd()
-    }
-  }
-
-  [MAKEFS] (er, entry, done) {
-    if (er) {
-      this[ONERROR](er, entry)
-      done()
-      return
-    }
-
-    switch (entry.type) {
-      case 'File':
-      case 'OldFile':
-      case 'ContiguousFile':
-        return this[FILE](entry, done)
-
-      case 'Link':
-        return this[HARDLINK](entry, done)
-
-      case 'SymbolicLink':
-        return this[SYMLINK](entry, done)
-
-      case 'Directory':
-      case 'GNUDumpDir':
-        return this[DIRECTORY](entry, done)
-    }
-  }
-
-  [LINK] (entry, linkpath, link, done) {
-    // XXX: get the type ('symlink' or 'junction') for windows
-    fs[link](linkpath, entry.absolute, er => {
-      if (er) {
-        this[ONERROR](er, entry)
-      } else {
-        this[UNPEND]()
-        entry.resume()
-      }
-      done()
-    })
-  }
-}
-
-const callSync = fn => {
-  try {
-    return [null, fn()]
-  } catch (er) {
-    return [er, null]
-  }
-}
-class UnpackSync extends Unpack {
-  [MAKEFS] (er, entry) {
-    return super[MAKEFS](er, entry, () => {})
-  }
-
-  [CHECKFS] (entry) {
-    this[PRUNECACHE](entry)
-
-    if (!this[CHECKED_CWD]) {
-      const er = this[MKDIR](this.cwd, this.dmode)
-      if (er) {
-        return this[ONERROR](er, entry)
-      }
-      this[CHECKED_CWD] = true
-    }
-
-    // don't bother to make the parent if the current entry is the cwd,
-    // we've already checked it.
-    if (entry.absolute !== this.cwd) {
-      const parent = normPath(path.dirname(entry.absolute))
-      if (parent !== this.cwd) {
-        const mkParent = this[MKDIR](parent, this.dmode)
-        if (mkParent) {
-          return this[ONERROR](mkParent, entry)
-        }
-      }
-    }
-
-    const [lstatEr, st] = callSync(() => fs.lstatSync(entry.absolute))
-    if (st && (this.keep || this.newer && st.mtime > entry.mtime)) {
-      return this[SKIP](entry)
-    }
-
-    if (lstatEr || this[ISREUSABLE](entry, st)) {
-      return this[MAKEFS](null, entry)
-    }
-
-    if (st.isDirectory()) {
-      if (entry.type === 'Directory') {
-        const needChmod = !this.noChmod &&
-          entry.mode &&
-          (st.mode & 0o7777) !== entry.mode
-        const [er] = needChmod ? callSync(() => {
-          fs.chmodSync(entry.absolute, entry.mode)
-        }) : []
-        return this[MAKEFS](er, entry)
-      }
-      // not a dir entry, have to remove it
-      const [er] = callSync(() => fs.rmdirSync(entry.absolute))
-      this[MAKEFS](er, entry)
-    }
-
-    // not a dir, and not reusable.
-    // don't remove if it's the cwd, since we want that error.
-    const [er] = entry.absolute === this.cwd ? []
-      : callSync(() => unlinkFileSync(entry.absolute))
-    this[MAKEFS](er, entry)
-  }
-
-  [FILE] (entry, done) {
-    const mode = entry.mode & 0o7777 || this.fmode
-
-    const oner = er => {
-      let closeError
-      try {
-        fs.closeSync(fd)
-      } catch (e) {
-        closeError = e
-      }
-      if (er || closeError) {
-        this[ONERROR](er || closeError, entry)
-      }
-      done()
-    }
-
-    let fd
-    try {
-      fd = fs.openSync(entry.absolute, getFlag(entry.size), mode)
-    } catch (er) {
-      return oner(er)
-    }
-    const tx = this.transform ? this.transform(entry) || entry : entry
-    if (tx !== entry) {
-      tx.on('error', er => this[ONERROR](er, entry))
-      entry.pipe(tx)
-    }
-
-    tx.on('data', chunk => {
-      try {
-        fs.writeSync(fd, chunk, 0, chunk.length)
-      } catch (er) {
-        oner(er)
-      }
-    })
-
-    tx.on('end', _ => {
-      let er = null
-      // try both, falling futimes back to utimes
-      // if either fails, handle the first error
-      if (entry.mtime && !this.noMtime) {
-        const atime = entry.atime || new Date()
-        const mtime = entry.mtime
-        try {
-          fs.futimesSync(fd, atime, mtime)
-        } catch (futimeser) {
-          try {
-            fs.utimesSync(entry.absolute, atime, mtime)
-          } catch (utimeser) {
-            er = futimeser
-          }
-        }
-      }
-
-      if (this[DOCHOWN](entry)) {
-        const uid = this[UID](entry)
-        const gid = this[GID](entry)
-
-        try {
-          fs.fchownSync(fd, uid, gid)
-        } catch (fchowner) {
-          try {
-            fs.chownSync(entry.absolute, uid, gid)
-          } catch (chowner) {
-            er = er || fchowner
-          }
-        }
-      }
-
-      oner(er)
-    })
-  }
-
-  [DIRECTORY] (entry, done) {
-    const mode = entry.mode & 0o7777 || this.dmode
-    const er = this[MKDIR](entry.absolute, mode)
-    if (er) {
-      this[ONERROR](er, entry)
-      done()
-      return
-    }
-    if (entry.mtime && !this.noMtime) {
-      try {
-        fs.utimesSync(entry.absolute, entry.atime || new Date(), entry.mtime)
-      } catch (er) {}
-    }
-    if (this[DOCHOWN](entry)) {
-      try {
-        fs.chownSync(entry.absolute, this[UID](entry), this[GID](entry))
-      } catch (er) {}
-    }
-    done()
-    entry.resume()
-  }
-
-  [MKDIR] (dir, mode) {
-    try {
-      return mkdir.sync(normPath(dir), {
-        uid: this.uid,
-        gid: this.gid,
-        processUid: this.processUid,
-        processGid: this.processGid,
-        umask: this.processUmask,
-        preserve: this.preservePaths,
-        unlink: this.unlink,
-        cache: this.dirCache,
-        cwd: this.cwd,
-        mode: mode,
-      })
-    } catch (er) {
-      return er
-    }
-  }
-
-  [LINK] (entry, linkpath, link, done) {
-    try {
-      fs[link + 'Sync'](linkpath, entry.absolute)
-      done()
-      entry.resume()
-    } catch (er) {
-      return this[ONERROR](er, entry)
-    }
-  }
-}
-
-Unpack.Sync = UnpackSync
-module.exports = Unpack
-
-
-/***/ }),
-
-/***/ 7488:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-// tar -u
-
-const hlo = __nccwpck_require__(8052)
-const r = __nccwpck_require__(6562)
-// just call tar.r with the filter and mtimeCache
-
-module.exports = (opt_, files, cb) => {
-  const opt = hlo(opt_)
-
-  if (!opt.file) {
-    throw new TypeError('file is required')
-  }
-
-  if (opt.gzip) {
-    throw new TypeError('cannot append to compressed archives')
-  }
-
-  if (!files || !Array.isArray(files) || !files.length) {
-    throw new TypeError('no files or directories specified')
-  }
-
-  files = Array.from(files)
-
-  mtimeFilter(opt)
-  return r(opt, files, cb)
-}
-
-const mtimeFilter = opt => {
-  const filter = opt.filter
-
-  if (!opt.mtimeCache) {
-    opt.mtimeCache = new Map()
-  }
-
-  opt.filter = filter ? (path, stat) =>
-    filter(path, stat) && !(opt.mtimeCache.get(path) > stat.mtime)
-    : (path, stat) => !(opt.mtimeCache.get(path) > stat.mtime)
-}
-
-
-/***/ }),
-
-/***/ 1634:
-/***/ ((module) => {
-
-"use strict";
-
-module.exports = Base => class extends Base {
-  warn (code, message, data = {}) {
-    if (this.file) {
-      data.file = this.file
-    }
-    if (this.cwd) {
-      data.cwd = this.cwd
-    }
-    data.code = message instanceof Error && message.code || code
-    data.tarCode = code
-    if (!this.strict && data.recoverable !== false) {
-      if (message instanceof Error) {
-        data = Object.assign(message, data)
-        message = message.message
-      }
-      this.emit('warn', data.tarCode, message, data)
-    } else if (message instanceof Error) {
-      this.emit('error', Object.assign(message, data))
-    } else {
-      this.emit('error', Object.assign(new Error(`${code}: ${message}`), data))
-    }
-  }
-}
-
-
-/***/ }),
-
-/***/ 3856:
-/***/ ((module) => {
-
-"use strict";
-
-
-// When writing files on Windows, translate the characters to their
-// 0xf000 higher-encoded versions.
-
-const raw = [
-  '|',
-  '<',
-  '>',
-  '?',
-  ':',
-]
-
-const win = raw.map(char =>
-  String.fromCharCode(0xf000 + char.charCodeAt(0)))
-
-const toWin = new Map(raw.map((char, i) => [char, win[i]]))
-const toRaw = new Map(win.map((char, i) => [char, raw[i]]))
-
-module.exports = {
-  encode: s => raw.reduce((s, c) => s.split(c).join(toWin.get(c)), s),
-  decode: s => win.reduce((s, c) => s.split(c).join(toRaw.get(c)), s),
-}
-
-
-/***/ }),
-
-/***/ 6900:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-const { Minipass } = __nccwpck_require__(8759)
-const Pax = __nccwpck_require__(476)
-const Header = __nccwpck_require__(9868)
-const fs = __nccwpck_require__(7147)
-const path = __nccwpck_require__(1017)
-const normPath = __nccwpck_require__(8407)
-const stripSlash = __nccwpck_require__(9812)
-
-const prefixPath = (path, prefix) => {
-  if (!prefix) {
-    return normPath(path)
-  }
-  path = normPath(path).replace(/^\.(\/|$)/, '')
-  return stripSlash(prefix) + '/' + path
-}
-
-const maxReadSize = 16 * 1024 * 1024
-const PROCESS = Symbol('process')
-const FILE = Symbol('file')
-const DIRECTORY = Symbol('directory')
-const SYMLINK = Symbol('symlink')
-const HARDLINK = Symbol('hardlink')
-const HEADER = Symbol('header')
-const READ = Symbol('read')
-const LSTAT = Symbol('lstat')
-const ONLSTAT = Symbol('onlstat')
-const ONREAD = Symbol('onread')
-const ONREADLINK = Symbol('onreadlink')
-const OPENFILE = Symbol('openfile')
-const ONOPENFILE = Symbol('onopenfile')
-const CLOSE = Symbol('close')
-const MODE = Symbol('mode')
-const AWAITDRAIN = Symbol('awaitDrain')
-const ONDRAIN = Symbol('ondrain')
-const PREFIX = Symbol('prefix')
-const HAD_ERROR = Symbol('hadError')
-const warner = __nccwpck_require__(1634)
-const winchars = __nccwpck_require__(3856)
-const stripAbsolutePath = __nccwpck_require__(2190)
-
-const modeFix = __nccwpck_require__(8833)
-
-const WriteEntry = warner(class WriteEntry extends Minipass {
-  constructor (p, opt) {
-    opt = opt || {}
-    super(opt)
-    if (typeof p !== 'string') {
-      throw new TypeError('path is required')
-    }
-    this.path = normPath(p)
-    // suppress atime, ctime, uid, gid, uname, gname
-    this.portable = !!opt.portable
-    // until node has builtin pwnam functions, this'll have to do
-    this.myuid = process.getuid && process.getuid() || 0
-    this.myuser = process.env.USER || ''
-    this.maxReadSize = opt.maxReadSize || maxReadSize
-    this.linkCache = opt.linkCache || new Map()
-    this.statCache = opt.statCache || new Map()
-    this.preservePaths = !!opt.preservePaths
-    this.cwd = normPath(opt.cwd || process.cwd())
-    this.strict = !!opt.strict
-    this.noPax = !!opt.noPax
-    this.noMtime = !!opt.noMtime
-    this.mtime = opt.mtime || null
-    this.prefix = opt.prefix ? normPath(opt.prefix) : null
-
-    this.fd = null
-    this.blockLen = null
-    this.blockRemain = null
-    this.buf = null
-    this.offset = null
-    this.length = null
-    this.pos = null
-    this.remain = null
-
-    if (typeof opt.onwarn === 'function') {
-      this.on('warn', opt.onwarn)
-    }
-
-    let pathWarn = false
-    if (!this.preservePaths) {
-      const [root, stripped] = stripAbsolutePath(this.path)
-      if (root) {
-        this.path = stripped
-        pathWarn = root
-      }
-    }
-
-    this.win32 = !!opt.win32 || process.platform === 'win32'
-    if (this.win32) {
-      // force the \ to / normalization, since we might not *actually*
-      // be on windows, but want \ to be considered a path separator.
-      this.path = winchars.decode(this.path.replace(/\\/g, '/'))
-      p = p.replace(/\\/g, '/')
-    }
-
-    this.absolute = normPath(opt.absolute || path.resolve(this.cwd, p))
-
-    if (this.path === '') {
-      this.path = './'
-    }
-
-    if (pathWarn) {
-      this.warn('TAR_ENTRY_INFO', `stripping ${pathWarn} from absolute path`, {
-        entry: this,
-        path: pathWarn + this.path,
-      })
-    }
-
-    if (this.statCache.has(this.absolute)) {
-      this[ONLSTAT](this.statCache.get(this.absolute))
-    } else {
-      this[LSTAT]()
-    }
-  }
-
-  emit (ev, ...data) {
-    if (ev === 'error') {
-      this[HAD_ERROR] = true
-    }
-    return super.emit(ev, ...data)
-  }
-
-  [LSTAT] () {
-    fs.lstat(this.absolute, (er, stat) => {
-      if (er) {
-        return this.emit('error', er)
-      }
-      this[ONLSTAT](stat)
-    })
-  }
-
-  [ONLSTAT] (stat) {
-    this.statCache.set(this.absolute, stat)
-    this.stat = stat
-    if (!stat.isFile()) {
-      stat.size = 0
-    }
-    this.type = getType(stat)
-    this.emit('stat', stat)
-    this[PROCESS]()
-  }
-
-  [PROCESS] () {
-    switch (this.type) {
-      case 'File': return this[FILE]()
-      case 'Directory': return this[DIRECTORY]()
-      case 'SymbolicLink': return this[SYMLINK]()
-      // unsupported types are ignored.
-      default: return this.end()
-    }
-  }
-
-  [MODE] (mode) {
-    return modeFix(mode, this.type === 'Directory', this.portable)
-  }
-
-  [PREFIX] (path) {
-    return prefixPath(path, this.prefix)
-  }
-
-  [HEADER] () {
-    if (this.type === 'Directory' && this.portable) {
-      this.noMtime = true
-    }
-
-    this.header = new Header({
-      path: this[PREFIX](this.path),
-      // only apply the prefix to hard links.
-      linkpath: this.type === 'Link' ? this[PREFIX](this.linkpath)
-      : this.linkpath,
-      // only the permissions and setuid/setgid/sticky bitflags
-      // not the higher-order bits that specify file type
-      mode: this[MODE](this.stat.mode),
-      uid: this.portable ? null : this.stat.uid,
-      gid: this.portable ? null : this.stat.gid,
-      size: this.stat.size,
-      mtime: this.noMtime ? null : this.mtime || this.stat.mtime,
-      type: this.type,
-      uname: this.portable ? null :
-      this.stat.uid === this.myuid ? this.myuser : '',
-      atime: this.portable ? null : this.stat.atime,
-      ctime: this.portable ? null : this.stat.ctime,
-    })
-
-    if (this.header.encode() && !this.noPax) {
-      super.write(new Pax({
-        atime: this.portable ? null : this.header.atime,
-        ctime: this.portable ? null : this.header.ctime,
-        gid: this.portable ? null : this.header.gid,
-        mtime: this.noMtime ? null : this.mtime || this.header.mtime,
-        path: this[PREFIX](this.path),
-        linkpath: this.type === 'Link' ? this[PREFIX](this.linkpath)
-        : this.linkpath,
-        size: this.header.size,
-        uid: this.portable ? null : this.header.uid,
-        uname: this.portable ? null : this.header.uname,
-        dev: this.portable ? null : this.stat.dev,
-        ino: this.portable ? null : this.stat.ino,
-        nlink: this.portable ? null : this.stat.nlink,
-      }).encode())
-    }
-    super.write(this.header.block)
-  }
-
-  [DIRECTORY] () {
-    if (this.path.slice(-1) !== '/') {
-      this.path += '/'
-    }
-    this.stat.size = 0
-    this[HEADER]()
-    this.end()
-  }
-
-  [SYMLINK] () {
-    fs.readlink(this.absolute, (er, linkpath) => {
-      if (er) {
-        return this.emit('error', er)
-      }
-      this[ONREADLINK](linkpath)
-    })
-  }
-
-  [ONREADLINK] (linkpath) {
-    this.linkpath = normPath(linkpath)
-    this[HEADER]()
-    this.end()
-  }
-
-  [HARDLINK] (linkpath) {
-    this.type = 'Link'
-    this.linkpath = normPath(path.relative(this.cwd, linkpath))
-    this.stat.size = 0
-    this[HEADER]()
-    this.end()
-  }
-
-  [FILE] () {
-    if (this.stat.nlink > 1) {
-      const linkKey = this.stat.dev + ':' + this.stat.ino
-      if (this.linkCache.has(linkKey)) {
-        const linkpath = this.linkCache.get(linkKey)
-        if (linkpath.indexOf(this.cwd) === 0) {
-          return this[HARDLINK](linkpath)
-        }
-      }
-      this.linkCache.set(linkKey, this.absolute)
-    }
-
-    this[HEADER]()
-    if (this.stat.size === 0) {
-      return this.end()
-    }
-
-    this[OPENFILE]()
-  }
-
-  [OPENFILE] () {
-    fs.open(this.absolute, 'r', (er, fd) => {
-      if (er) {
-        return this.emit('error', er)
-      }
-      this[ONOPENFILE](fd)
-    })
-  }
-
-  [ONOPENFILE] (fd) {
-    this.fd = fd
-    if (this[HAD_ERROR]) {
-      return this[CLOSE]()
-    }
-
-    this.blockLen = 512 * Math.ceil(this.stat.size / 512)
-    this.blockRemain = this.blockLen
-    const bufLen = Math.min(this.blockLen, this.maxReadSize)
-    this.buf = Buffer.allocUnsafe(bufLen)
-    this.offset = 0
-    this.pos = 0
-    this.remain = this.stat.size
-    this.length = this.buf.length
-    this[READ]()
-  }
-
-  [READ] () {
-    const { fd, buf, offset, length, pos } = this
-    fs.read(fd, buf, offset, length, pos, (er, bytesRead) => {
-      if (er) {
-        // ignoring the error from close(2) is a bad practice, but at
-        // this point we already have an error, don't need another one
-        return this[CLOSE](() => this.emit('error', er))
-      }
-      this[ONREAD](bytesRead)
-    })
-  }
-
-  [CLOSE] (cb) {
-    fs.close(this.fd, cb)
-  }
-
-  [ONREAD] (bytesRead) {
-    if (bytesRead <= 0 && this.remain > 0) {
-      const er = new Error('encountered unexpected EOF')
-      er.path = this.absolute
-      er.syscall = 'read'
-      er.code = 'EOF'
-      return this[CLOSE](() => this.emit('error', er))
-    }
-
-    if (bytesRead > this.remain) {
-      const er = new Error('did not encounter expected EOF')
-      er.path = this.absolute
-      er.syscall = 'read'
-      er.code = 'EOF'
-      return this[CLOSE](() => this.emit('error', er))
-    }
-
-    // null out the rest of the buffer, if we could fit the block padding
-    // at the end of this loop, we've incremented bytesRead and this.remain
-    // to be incremented up to the blockRemain level, as if we had expected
-    // to get a null-padded file, and read it until the end.  then we will
-    // decrement both remain and blockRemain by bytesRead, and know that we
-    // reached the expected EOF, without any null buffer to append.
-    if (bytesRead === this.remain) {
-      for (let i = bytesRead; i < this.length && bytesRead < this.blockRemain; i++) {
-        this.buf[i + this.offset] = 0
-        bytesRead++
-        this.remain++
-      }
-    }
-
-    const writeBuf = this.offset === 0 && bytesRead === this.buf.length ?
-      this.buf : this.buf.slice(this.offset, this.offset + bytesRead)
-
-    const flushed = this.write(writeBuf)
-    if (!flushed) {
-      this[AWAITDRAIN](() => this[ONDRAIN]())
-    } else {
-      this[ONDRAIN]()
-    }
-  }
-
-  [AWAITDRAIN] (cb) {
-    this.once('drain', cb)
-  }
-
-  write (writeBuf) {
-    if (this.blockRemain < writeBuf.length) {
-      const er = new Error('writing more data than expected')
-      er.path = this.absolute
-      return this.emit('error', er)
-    }
-    this.remain -= writeBuf.length
-    this.blockRemain -= writeBuf.length
-    this.pos += writeBuf.length
-    this.offset += writeBuf.length
-    return super.write(writeBuf)
-  }
-
-  [ONDRAIN] () {
-    if (!this.remain) {
-      if (this.blockRemain) {
-        super.write(Buffer.alloc(this.blockRemain))
-      }
-      return this[CLOSE](er => er ? this.emit('error', er) : this.end())
-    }
-
-    if (this.offset >= this.length) {
-      // if we only have a smaller bit left to read, alloc a smaller buffer
-      // otherwise, keep it the same length it was before.
-      this.buf = Buffer.allocUnsafe(Math.min(this.blockRemain, this.buf.length))
-      this.offset = 0
-    }
-    this.length = this.buf.length - this.offset
-    this[READ]()
-  }
-})
-
-class WriteEntrySync extends WriteEntry {
-  [LSTAT] () {
-    this[ONLSTAT](fs.lstatSync(this.absolute))
-  }
-
-  [SYMLINK] () {
-    this[ONREADLINK](fs.readlinkSync(this.absolute))
-  }
-
-  [OPENFILE] () {
-    this[ONOPENFILE](fs.openSync(this.absolute, 'r'))
-  }
-
-  [READ] () {
-    let threw = true
-    try {
-      const { fd, buf, offset, length, pos } = this
-      const bytesRead = fs.readSync(fd, buf, offset, length, pos)
-      this[ONREAD](bytesRead)
-      threw = false
-    } finally {
-      // ignoring the error from close(2) is a bad practice, but at
-      // this point we already have an error, don't need another one
-      if (threw) {
-        try {
-          this[CLOSE](() => {})
-        } catch (er) {}
-      }
-    }
-  }
-
-  [AWAITDRAIN] (cb) {
-    cb()
-  }
-
-  [CLOSE] (cb) {
-    fs.closeSync(this.fd)
-    cb()
-  }
-}
-
-const WriteEntryTar = warner(class WriteEntryTar extends Minipass {
-  constructor (readEntry, opt) {
-    opt = opt || {}
-    super(opt)
-    this.preservePaths = !!opt.preservePaths
-    this.portable = !!opt.portable
-    this.strict = !!opt.strict
-    this.noPax = !!opt.noPax
-    this.noMtime = !!opt.noMtime
-
-    this.readEntry = readEntry
-    this.type = readEntry.type
-    if (this.type === 'Directory' && this.portable) {
-      this.noMtime = true
-    }
-
-    this.prefix = opt.prefix || null
-
-    this.path = normPath(readEntry.path)
-    this.mode = this[MODE](readEntry.mode)
-    this.uid = this.portable ? null : readEntry.uid
-    this.gid = this.portable ? null : readEntry.gid
-    this.uname = this.portable ? null : readEntry.uname
-    this.gname = this.portable ? null : readEntry.gname
-    this.size = readEntry.size
-    this.mtime = this.noMtime ? null : opt.mtime || readEntry.mtime
-    this.atime = this.portable ? null : readEntry.atime
-    this.ctime = this.portable ? null : readEntry.ctime
-    this.linkpath = normPath(readEntry.linkpath)
-
-    if (typeof opt.onwarn === 'function') {
-      this.on('warn', opt.onwarn)
-    }
-
-    let pathWarn = false
-    if (!this.preservePaths) {
-      const [root, stripped] = stripAbsolutePath(this.path)
-      if (root) {
-        this.path = stripped
-        pathWarn = root
-      }
-    }
-
-    this.remain = readEntry.size
-    this.blockRemain = readEntry.startBlockSize
-
-    this.header = new Header({
-      path: this[PREFIX](this.path),
-      linkpath: this.type === 'Link' ? this[PREFIX](this.linkpath)
-      : this.linkpath,
-      // only the permissions and setuid/setgid/sticky bitflags
-      // not the higher-order bits that specify file type
-      mode: this.mode,
-      uid: this.portable ? null : this.uid,
-      gid: this.portable ? null : this.gid,
-      size: this.size,
-      mtime: this.noMtime ? null : this.mtime,
-      type: this.type,
-      uname: this.portable ? null : this.uname,
-      atime: this.portable ? null : this.atime,
-      ctime: this.portable ? null : this.ctime,
-    })
-
-    if (pathWarn) {
-      this.warn('TAR_ENTRY_INFO', `stripping ${pathWarn} from absolute path`, {
-        entry: this,
-        path: pathWarn + this.path,
-      })
-    }
-
-    if (this.header.encode() && !this.noPax) {
-      super.write(new Pax({
-        atime: this.portable ? null : this.atime,
-        ctime: this.portable ? null : this.ctime,
-        gid: this.portable ? null : this.gid,
-        mtime: this.noMtime ? null : this.mtime,
-        path: this[PREFIX](this.path),
-        linkpath: this.type === 'Link' ? this[PREFIX](this.linkpath)
-        : this.linkpath,
-        size: this.size,
-        uid: this.portable ? null : this.uid,
-        uname: this.portable ? null : this.uname,
-        dev: this.portable ? null : this.readEntry.dev,
-        ino: this.portable ? null : this.readEntry.ino,
-        nlink: this.portable ? null : this.readEntry.nlink,
-      }).encode())
-    }
-
-    super.write(this.header.block)
-    readEntry.pipe(this)
-  }
-
-  [PREFIX] (path) {
-    return prefixPath(path, this.prefix)
-  }
-
-  [MODE] (mode) {
-    return modeFix(mode, this.type === 'Directory', this.portable)
-  }
-
-  write (data) {
-    const writeLen = data.length
-    if (writeLen > this.blockRemain) {
-      throw new Error('writing more to entry than is appropriate')
-    }
-    this.blockRemain -= writeLen
-    return super.write(data)
-  }
-
-  end () {
-    if (this.blockRemain) {
-      super.write(Buffer.alloc(this.blockRemain))
-    }
-    return super.end()
-  }
-})
-
-WriteEntry.Sync = WriteEntrySync
-WriteEntry.Tar = WriteEntryTar
-
-const getType = stat =>
-  stat.isFile() ? 'File'
-  : stat.isDirectory() ? 'Directory'
-  : stat.isSymbolicLink() ? 'SymbolicLink'
-  : 'Unsupported'
-
-module.exports = WriteEntry
+module.exports = /^#!(.*)/;
 
 
 /***/ }),
@@ -63185,38 +53791,6 @@ if (process.env.NODE_DEBUG && /\btunnel\b/.test(process.env.NODE_DEBUG)) {
   debug = function() {};
 }
 exports.debug = debug; // for test
-
-
-/***/ }),
-
-/***/ 3946:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-
-exports.fromCallback = function (fn) {
-  return Object.defineProperty(function (...args) {
-    if (typeof args[args.length - 1] === 'function') fn.apply(this, args)
-    else {
-      return new Promise((resolve, reject) => {
-        fn.call(
-          this,
-          ...args,
-          (err, res) => (err != null) ? reject(err) : resolve(res)
-        )
-      })
-    }
-  }, 'name', { value: fn.name })
-}
-
-exports.fromPromise = function (fn) {
-  return Object.defineProperty(function (...args) {
-    const cb = args[args.length - 1]
-    if (typeof cb !== 'function') return fn.apply(this, args)
-    else fn.apply(this, args.slice(0, -1)).then(r => cb(null, r), cb)
-  }, 'name', { value: fn.name })
-}
 
 
 /***/ }),
@@ -70262,6 +60836,138 @@ module.exports.implForWrapper = function (wrapper) {
 
 /***/ }),
 
+/***/ 6189:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const isWindows = process.platform === 'win32' ||
+    process.env.OSTYPE === 'cygwin' ||
+    process.env.OSTYPE === 'msys'
+
+const path = __nccwpck_require__(1017)
+const COLON = isWindows ? ';' : ':'
+const isexe = __nccwpck_require__(4555)
+
+const getNotFoundError = (cmd) =>
+  Object.assign(new Error(`not found: ${cmd}`), { code: 'ENOENT' })
+
+const getPathInfo = (cmd, opt) => {
+  const colon = opt.colon || COLON
+
+  // If it has a slash, then we don't bother searching the pathenv.
+  // just check the file itself, and that's it.
+  const pathEnv = cmd.match(/\//) || isWindows && cmd.match(/\\/) ? ['']
+    : (
+      [
+        // windows always checks the cwd first
+        ...(isWindows ? [process.cwd()] : []),
+        ...(opt.path || process.env.PATH ||
+          /* istanbul ignore next: very unusual */ '').split(colon),
+      ]
+    )
+  const pathExtExe = isWindows
+    ? opt.pathExt || process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM'
+    : ''
+  const pathExt = isWindows ? pathExtExe.split(colon) : ['']
+
+  if (isWindows) {
+    if (cmd.indexOf('.') !== -1 && pathExt[0] !== '')
+      pathExt.unshift('')
+  }
+
+  return {
+    pathEnv,
+    pathExt,
+    pathExtExe,
+  }
+}
+
+const which = (cmd, opt, cb) => {
+  if (typeof opt === 'function') {
+    cb = opt
+    opt = {}
+  }
+  if (!opt)
+    opt = {}
+
+  const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt)
+  const found = []
+
+  const step = i => new Promise((resolve, reject) => {
+    if (i === pathEnv.length)
+      return opt.all && found.length ? resolve(found)
+        : reject(getNotFoundError(cmd))
+
+    const ppRaw = pathEnv[i]
+    const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw
+
+    const pCmd = path.join(pathPart, cmd)
+    const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd
+      : pCmd
+
+    resolve(subStep(p, i, 0))
+  })
+
+  const subStep = (p, i, ii) => new Promise((resolve, reject) => {
+    if (ii === pathExt.length)
+      return resolve(step(i + 1))
+    const ext = pathExt[ii]
+    isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
+      if (!er && is) {
+        if (opt.all)
+          found.push(p + ext)
+        else
+          return resolve(p + ext)
+      }
+      return resolve(subStep(p, i, ii + 1))
+    })
+  })
+
+  return cb ? step(0).then(res => cb(null, res), cb) : step(0)
+}
+
+const whichSync = (cmd, opt) => {
+  opt = opt || {}
+
+  const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt)
+  const found = []
+
+  for (let i = 0; i < pathEnv.length; i ++) {
+    const ppRaw = pathEnv[i]
+    const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw
+
+    const pCmd = path.join(pathPart, cmd)
+    const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd
+      : pCmd
+
+    for (let j = 0; j < pathExt.length; j ++) {
+      const cur = p + pathExt[j]
+      try {
+        const is = isexe.sync(cur, { pathExt: pathExtExe })
+        if (is) {
+          if (opt.all)
+            found.push(cur)
+          else
+            return cur
+        }
+      } catch (ex) {}
+    }
+  }
+
+  if (opt.all && found.length)
+    return found
+
+  if (opt.nothrow)
+    return null
+
+  throw getNotFoundError(cmd)
+}
+
+module.exports = which
+which.sync = whichSync
+
+
+/***/ }),
+
 /***/ 5506:
 /***/ (function(__unused_webpack_module, exports) {
 
@@ -75269,456 +65975,6 @@ module.exports.implForWrapper = function (wrapper) {
 
 /***/ }),
 
-/***/ 2224:
-/***/ ((module) => {
-
-"use strict";
-
-module.exports = function (Yallist) {
-  Yallist.prototype[Symbol.iterator] = function* () {
-    for (let walker = this.head; walker; walker = walker.next) {
-      yield walker.value
-    }
-  }
-}
-
-
-/***/ }),
-
-/***/ 1590:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-"use strict";
-
-module.exports = Yallist
-
-Yallist.Node = Node
-Yallist.create = Yallist
-
-function Yallist (list) {
-  var self = this
-  if (!(self instanceof Yallist)) {
-    self = new Yallist()
-  }
-
-  self.tail = null
-  self.head = null
-  self.length = 0
-
-  if (list && typeof list.forEach === 'function') {
-    list.forEach(function (item) {
-      self.push(item)
-    })
-  } else if (arguments.length > 0) {
-    for (var i = 0, l = arguments.length; i < l; i++) {
-      self.push(arguments[i])
-    }
-  }
-
-  return self
-}
-
-Yallist.prototype.removeNode = function (node) {
-  if (node.list !== this) {
-    throw new Error('removing node which does not belong to this list')
-  }
-
-  var next = node.next
-  var prev = node.prev
-
-  if (next) {
-    next.prev = prev
-  }
-
-  if (prev) {
-    prev.next = next
-  }
-
-  if (node === this.head) {
-    this.head = next
-  }
-  if (node === this.tail) {
-    this.tail = prev
-  }
-
-  node.list.length--
-  node.next = null
-  node.prev = null
-  node.list = null
-
-  return next
-}
-
-Yallist.prototype.unshiftNode = function (node) {
-  if (node === this.head) {
-    return
-  }
-
-  if (node.list) {
-    node.list.removeNode(node)
-  }
-
-  var head = this.head
-  node.list = this
-  node.next = head
-  if (head) {
-    head.prev = node
-  }
-
-  this.head = node
-  if (!this.tail) {
-    this.tail = node
-  }
-  this.length++
-}
-
-Yallist.prototype.pushNode = function (node) {
-  if (node === this.tail) {
-    return
-  }
-
-  if (node.list) {
-    node.list.removeNode(node)
-  }
-
-  var tail = this.tail
-  node.list = this
-  node.prev = tail
-  if (tail) {
-    tail.next = node
-  }
-
-  this.tail = node
-  if (!this.head) {
-    this.head = node
-  }
-  this.length++
-}
-
-Yallist.prototype.push = function () {
-  for (var i = 0, l = arguments.length; i < l; i++) {
-    push(this, arguments[i])
-  }
-  return this.length
-}
-
-Yallist.prototype.unshift = function () {
-  for (var i = 0, l = arguments.length; i < l; i++) {
-    unshift(this, arguments[i])
-  }
-  return this.length
-}
-
-Yallist.prototype.pop = function () {
-  if (!this.tail) {
-    return undefined
-  }
-
-  var res = this.tail.value
-  this.tail = this.tail.prev
-  if (this.tail) {
-    this.tail.next = null
-  } else {
-    this.head = null
-  }
-  this.length--
-  return res
-}
-
-Yallist.prototype.shift = function () {
-  if (!this.head) {
-    return undefined
-  }
-
-  var res = this.head.value
-  this.head = this.head.next
-  if (this.head) {
-    this.head.prev = null
-  } else {
-    this.tail = null
-  }
-  this.length--
-  return res
-}
-
-Yallist.prototype.forEach = function (fn, thisp) {
-  thisp = thisp || this
-  for (var walker = this.head, i = 0; walker !== null; i++) {
-    fn.call(thisp, walker.value, i, this)
-    walker = walker.next
-  }
-}
-
-Yallist.prototype.forEachReverse = function (fn, thisp) {
-  thisp = thisp || this
-  for (var walker = this.tail, i = this.length - 1; walker !== null; i--) {
-    fn.call(thisp, walker.value, i, this)
-    walker = walker.prev
-  }
-}
-
-Yallist.prototype.get = function (n) {
-  for (var i = 0, walker = this.head; walker !== null && i < n; i++) {
-    // abort out of the list early if we hit a cycle
-    walker = walker.next
-  }
-  if (i === n && walker !== null) {
-    return walker.value
-  }
-}
-
-Yallist.prototype.getReverse = function (n) {
-  for (var i = 0, walker = this.tail; walker !== null && i < n; i++) {
-    // abort out of the list early if we hit a cycle
-    walker = walker.prev
-  }
-  if (i === n && walker !== null) {
-    return walker.value
-  }
-}
-
-Yallist.prototype.map = function (fn, thisp) {
-  thisp = thisp || this
-  var res = new Yallist()
-  for (var walker = this.head; walker !== null;) {
-    res.push(fn.call(thisp, walker.value, this))
-    walker = walker.next
-  }
-  return res
-}
-
-Yallist.prototype.mapReverse = function (fn, thisp) {
-  thisp = thisp || this
-  var res = new Yallist()
-  for (var walker = this.tail; walker !== null;) {
-    res.push(fn.call(thisp, walker.value, this))
-    walker = walker.prev
-  }
-  return res
-}
-
-Yallist.prototype.reduce = function (fn, initial) {
-  var acc
-  var walker = this.head
-  if (arguments.length > 1) {
-    acc = initial
-  } else if (this.head) {
-    walker = this.head.next
-    acc = this.head.value
-  } else {
-    throw new TypeError('Reduce of empty list with no initial value')
-  }
-
-  for (var i = 0; walker !== null; i++) {
-    acc = fn(acc, walker.value, i)
-    walker = walker.next
-  }
-
-  return acc
-}
-
-Yallist.prototype.reduceReverse = function (fn, initial) {
-  var acc
-  var walker = this.tail
-  if (arguments.length > 1) {
-    acc = initial
-  } else if (this.tail) {
-    walker = this.tail.prev
-    acc = this.tail.value
-  } else {
-    throw new TypeError('Reduce of empty list with no initial value')
-  }
-
-  for (var i = this.length - 1; walker !== null; i--) {
-    acc = fn(acc, walker.value, i)
-    walker = walker.prev
-  }
-
-  return acc
-}
-
-Yallist.prototype.toArray = function () {
-  var arr = new Array(this.length)
-  for (var i = 0, walker = this.head; walker !== null; i++) {
-    arr[i] = walker.value
-    walker = walker.next
-  }
-  return arr
-}
-
-Yallist.prototype.toArrayReverse = function () {
-  var arr = new Array(this.length)
-  for (var i = 0, walker = this.tail; walker !== null; i++) {
-    arr[i] = walker.value
-    walker = walker.prev
-  }
-  return arr
-}
-
-Yallist.prototype.slice = function (from, to) {
-  to = to || this.length
-  if (to < 0) {
-    to += this.length
-  }
-  from = from || 0
-  if (from < 0) {
-    from += this.length
-  }
-  var ret = new Yallist()
-  if (to < from || to < 0) {
-    return ret
-  }
-  if (from < 0) {
-    from = 0
-  }
-  if (to > this.length) {
-    to = this.length
-  }
-  for (var i = 0, walker = this.head; walker !== null && i < from; i++) {
-    walker = walker.next
-  }
-  for (; walker !== null && i < to; i++, walker = walker.next) {
-    ret.push(walker.value)
-  }
-  return ret
-}
-
-Yallist.prototype.sliceReverse = function (from, to) {
-  to = to || this.length
-  if (to < 0) {
-    to += this.length
-  }
-  from = from || 0
-  if (from < 0) {
-    from += this.length
-  }
-  var ret = new Yallist()
-  if (to < from || to < 0) {
-    return ret
-  }
-  if (from < 0) {
-    from = 0
-  }
-  if (to > this.length) {
-    to = this.length
-  }
-  for (var i = this.length, walker = this.tail; walker !== null && i > to; i--) {
-    walker = walker.prev
-  }
-  for (; walker !== null && i > from; i--, walker = walker.prev) {
-    ret.push(walker.value)
-  }
-  return ret
-}
-
-Yallist.prototype.splice = function (start, deleteCount, ...nodes) {
-  if (start > this.length) {
-    start = this.length - 1
-  }
-  if (start < 0) {
-    start = this.length + start;
-  }
-
-  for (var i = 0, walker = this.head; walker !== null && i < start; i++) {
-    walker = walker.next
-  }
-
-  var ret = []
-  for (var i = 0; walker && i < deleteCount; i++) {
-    ret.push(walker.value)
-    walker = this.removeNode(walker)
-  }
-  if (walker === null) {
-    walker = this.tail
-  }
-
-  if (walker !== this.head && walker !== this.tail) {
-    walker = walker.prev
-  }
-
-  for (var i = 0; i < nodes.length; i++) {
-    walker = insert(this, walker, nodes[i])
-  }
-  return ret;
-}
-
-Yallist.prototype.reverse = function () {
-  var head = this.head
-  var tail = this.tail
-  for (var walker = head; walker !== null; walker = walker.prev) {
-    var p = walker.prev
-    walker.prev = walker.next
-    walker.next = p
-  }
-  this.head = tail
-  this.tail = head
-  return this
-}
-
-function insert (self, node, value) {
-  var inserted = node === self.head ?
-    new Node(value, null, node, self) :
-    new Node(value, node, node.next, self)
-
-  if (inserted.next === null) {
-    self.tail = inserted
-  }
-  if (inserted.prev === null) {
-    self.head = inserted
-  }
-
-  self.length++
-
-  return inserted
-}
-
-function push (self, item) {
-  self.tail = new Node(item, self.tail, null, self)
-  if (!self.head) {
-    self.head = self.tail
-  }
-  self.length++
-}
-
-function unshift (self, item) {
-  self.head = new Node(item, null, self.head, self)
-  if (!self.tail) {
-    self.tail = self.head
-  }
-  self.length++
-}
-
-function Node (value, prev, next, list) {
-  if (!(this instanceof Node)) {
-    return new Node(value, prev, next, list)
-  }
-
-  this.list = list
-  this.value = value
-
-  if (prev) {
-    prev.next = this
-    this.prev = prev
-  } else {
-    this.prev = null
-  }
-
-  if (next) {
-    next.prev = this
-    this.next = next
-  } else {
-    this.next = null
-  }
-}
-
-try {
-  // add if support for Symbol.iterator is present
-  __nccwpck_require__(2224)(Yallist)
-} catch (er) {}
-
-
-/***/ }),
-
 /***/ 326:
 /***/ ((module) => {
 
@@ -75748,14 +66004,6 @@ module.exports = require("buffer");
 
 "use strict";
 module.exports = require("child_process");
-
-/***/ }),
-
-/***/ 2057:
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("constants");
 
 /***/ }),
 
@@ -75815,6 +66063,22 @@ module.exports = require("net");
 
 /***/ }),
 
+/***/ 7561:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:fs");
+
+/***/ }),
+
+/***/ 9411:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:path");
+
+/***/ }),
+
 /***/ 7742:
 /***/ ((module) => {
 
@@ -75844,14 +66108,6 @@ module.exports = require("os");
 
 "use strict";
 module.exports = require("path");
-
-/***/ }),
-
-/***/ 7282:
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("process");
 
 /***/ }),
 
@@ -76047,29 +66303,19 @@ const File = _File
 
 /***/ }),
 
-/***/ 4766:
+/***/ 5703:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
 
 "use strict";
-
-// EXPORTS
-__nccwpck_require__.d(__webpack_exports__, {
-  "$B": () => (/* reexport */ file/* default */.Z)
-});
-
-// UNUSED EXPORTS: Blob, blobFrom, blobFromSync, default, fileFrom, fileFromSync
-
-;// CONCATENATED MODULE: external "node:fs"
-const external_node_fs_namespaceObject = require("node:fs");
-;// CONCATENATED MODULE: external "node:path"
-const external_node_path_namespaceObject = require("node:path");
-// EXTERNAL MODULE: ./node_modules/.pnpm/node-domexception@1.0.0/node_modules/node-domexception/index.js
-var node_domexception = __nccwpck_require__(1351);
-// EXTERNAL MODULE: ./node_modules/.pnpm/fetch-blob@3.2.0/node_modules/fetch-blob/file.js
-var file = __nccwpck_require__(1564);
-// EXTERNAL MODULE: ./node_modules/.pnpm/fetch-blob@3.2.0/node_modules/fetch-blob/index.js
-var fetch_blob = __nccwpck_require__(8967);
-;// CONCATENATED MODULE: ./node_modules/.pnpm/fetch-blob@3.2.0/node_modules/fetch-blob/from.js
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   "$B": () => (/* reexport safe */ _file_js__WEBPACK_IMPORTED_MODULE_3__.Z)
+/* harmony export */ });
+/* unused harmony exports blobFrom, blobFromSync, fileFrom, fileFromSync */
+/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(7561);
+/* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(9411);
+/* harmony import */ var node_domexception__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(1351);
+/* harmony import */ var _file_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(1564);
+/* harmony import */ var _index_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(8967);
 
 
 
@@ -76077,7 +66323,7 @@ var fetch_blob = __nccwpck_require__(8967);
 
 
 
-const { stat } = external_node_fs_namespaceObject.promises
+const { stat } = node_fs__WEBPACK_IMPORTED_MODULE_0__.promises
 
 /**
  * @param {string} path filepath on the disk
@@ -76168,7 +66414,7 @@ class BlobDataItem {
   }
 }
 
-/* harmony default export */ const from = ((/* unused pure expression or super */ null && (blobFromSync)));
+/* unused harmony default export */ var __WEBPACK_DEFAULT_EXPORT__ = ((/* unused pure expression or super */ null && (blobFromSync)));
 
 
 
@@ -77647,11 +67893,6 @@ var exec = __nccwpck_require__(1757);
 var lib_cache = __nccwpck_require__(2561);
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+cache@3.2.2/node_modules/@actions/cache/lib/cache.js
 var cache_lib_cache = __nccwpck_require__(2581);
-// EXTERNAL MODULE: ./node_modules/.pnpm/tar@6.1.15/node_modules/tar/index.js
-var tar = __nccwpck_require__(6620);
-// EXTERNAL MODULE: ./node_modules/.pnpm/fs-extra@11.1.1/node_modules/fs-extra/lib/index.js
-var lib = __nccwpck_require__(3443);
-var lib_default = /*#__PURE__*/__nccwpck_require__.n(lib);
 ;// CONCATENATED MODULE: external "node:http"
 const external_node_http_namespaceObject = require("node:http");
 ;// CONCATENATED MODULE: external "node:https"
@@ -79383,8 +69624,8 @@ class AbortError extends FetchBaseError {
 	}
 }
 
-// EXTERNAL MODULE: ./node_modules/.pnpm/fetch-blob@3.2.0/node_modules/fetch-blob/from.js + 2 modules
-var from = __nccwpck_require__(4766);
+// EXTERNAL MODULE: ./node_modules/.pnpm/fetch-blob@3.2.0/node_modules/fetch-blob/from.js
+var from = __nccwpck_require__(5703);
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/node-fetch@3.3.2/node_modules/node-fetch/src/index.js
 /**
  * Index.js
@@ -79797,6 +70038,2169 @@ function fixResponseChunkedTransferBadEnding(request, errorCallback) {
 	});
 }
 
+// EXTERNAL MODULE: external "node:path"
+var external_node_path_ = __nccwpck_require__(9411);
+;// CONCATENATED MODULE: external "node:child_process"
+const external_node_child_process_namespaceObject = require("node:child_process");
+// EXTERNAL MODULE: external "node:process"
+var external_node_process_ = __nccwpck_require__(7742);
+// EXTERNAL MODULE: ./node_modules/.pnpm/cross-spawn@7.0.3/node_modules/cross-spawn/index.js
+var cross_spawn = __nccwpck_require__(9859);
+;// CONCATENATED MODULE: ./node_modules/.pnpm/strip-final-newline@3.0.0/node_modules/strip-final-newline/index.js
+function stripFinalNewline(input) {
+	const LF = typeof input === 'string' ? '\n' : '\n'.charCodeAt();
+	const CR = typeof input === 'string' ? '\r' : '\r'.charCodeAt();
+
+	if (input[input.length - 1] === LF) {
+		input = input.slice(0, -1);
+	}
+
+	if (input[input.length - 1] === CR) {
+		input = input.slice(0, -1);
+	}
+
+	return input;
+}
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/path-key@4.0.0/node_modules/path-key/index.js
+function pathKey(options = {}) {
+	const {
+		env = process.env,
+		platform = process.platform
+	} = options;
+
+	if (platform !== 'win32') {
+		return 'PATH';
+	}
+
+	return Object.keys(env).reverse().find(key => key.toUpperCase() === 'PATH') || 'Path';
+}
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/npm-run-path@5.1.0/node_modules/npm-run-path/index.js
+
+
+
+
+
+function npmRunPath(options = {}) {
+	const {
+		cwd = external_node_process_.cwd(),
+		path: path_ = external_node_process_.env[pathKey()],
+		execPath = external_node_process_.execPath,
+	} = options;
+
+	let previous;
+	const cwdString = cwd instanceof URL ? external_node_url_namespaceObject.fileURLToPath(cwd) : cwd;
+	let cwdPath = external_node_path_.resolve(cwdString);
+	const result = [];
+
+	while (previous !== cwdPath) {
+		result.push(external_node_path_.join(cwdPath, 'node_modules/.bin'));
+		previous = cwdPath;
+		cwdPath = external_node_path_.resolve(cwdPath, '..');
+	}
+
+	// Ensure the running `node` binary is used.
+	result.push(external_node_path_.resolve(cwdString, execPath, '..'));
+
+	return [...result, path_].join(external_node_path_.delimiter);
+}
+
+function npmRunPathEnv({env = external_node_process_.env, ...options} = {}) {
+	env = {...env};
+
+	const path = pathKey({env});
+	options.path = env[path];
+	env[path] = npmRunPath(options);
+
+	return env;
+}
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/mimic-fn@4.0.0/node_modules/mimic-fn/index.js
+const copyProperty = (to, from, property, ignoreNonConfigurable) => {
+	// `Function#length` should reflect the parameters of `to` not `from` since we keep its body.
+	// `Function#prototype` is non-writable and non-configurable so can never be modified.
+	if (property === 'length' || property === 'prototype') {
+		return;
+	}
+
+	// `Function#arguments` and `Function#caller` should not be copied. They were reported to be present in `Reflect.ownKeys` for some devices in React Native (#41), so we explicitly ignore them here.
+	if (property === 'arguments' || property === 'caller') {
+		return;
+	}
+
+	const toDescriptor = Object.getOwnPropertyDescriptor(to, property);
+	const fromDescriptor = Object.getOwnPropertyDescriptor(from, property);
+
+	if (!canCopyProperty(toDescriptor, fromDescriptor) && ignoreNonConfigurable) {
+		return;
+	}
+
+	Object.defineProperty(to, property, fromDescriptor);
+};
+
+// `Object.defineProperty()` throws if the property exists, is not configurable and either:
+// - one its descriptors is changed
+// - it is non-writable and its value is changed
+const canCopyProperty = function (toDescriptor, fromDescriptor) {
+	return toDescriptor === undefined || toDescriptor.configurable || (
+		toDescriptor.writable === fromDescriptor.writable &&
+		toDescriptor.enumerable === fromDescriptor.enumerable &&
+		toDescriptor.configurable === fromDescriptor.configurable &&
+		(toDescriptor.writable || toDescriptor.value === fromDescriptor.value)
+	);
+};
+
+const changePrototype = (to, from) => {
+	const fromPrototype = Object.getPrototypeOf(from);
+	if (fromPrototype === Object.getPrototypeOf(to)) {
+		return;
+	}
+
+	Object.setPrototypeOf(to, fromPrototype);
+};
+
+const wrappedToString = (withName, fromBody) => `/* Wrapped ${withName}*/\n${fromBody}`;
+
+const toStringDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, 'toString');
+const toStringName = Object.getOwnPropertyDescriptor(Function.prototype.toString, 'name');
+
+// We call `from.toString()` early (not lazily) to ensure `from` can be garbage collected.
+// We use `bind()` instead of a closure for the same reason.
+// Calling `from.toString()` early also allows caching it in case `to.toString()` is called several times.
+const changeToString = (to, from, name) => {
+	const withName = name === '' ? '' : `with ${name.trim()}() `;
+	const newToString = wrappedToString.bind(null, withName, from.toString());
+	// Ensure `to.toString.toString` is non-enumerable and has the same `same`
+	Object.defineProperty(newToString, 'name', toStringName);
+	Object.defineProperty(to, 'toString', {...toStringDescriptor, value: newToString});
+};
+
+function mimicFunction(to, from, {ignoreNonConfigurable = false} = {}) {
+	const {name} = to;
+
+	for (const property of Reflect.ownKeys(from)) {
+		copyProperty(to, from, property, ignoreNonConfigurable);
+	}
+
+	changePrototype(to, from);
+	changeToString(to, from, name);
+
+	return to;
+}
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/onetime@6.0.0/node_modules/onetime/index.js
+
+
+const calledFunctions = new WeakMap();
+
+const onetime = (function_, options = {}) => {
+	if (typeof function_ !== 'function') {
+		throw new TypeError('Expected a function');
+	}
+
+	let returnValue;
+	let callCount = 0;
+	const functionName = function_.displayName || function_.name || '<anonymous>';
+
+	const onetime = function (...arguments_) {
+		calledFunctions.set(onetime, ++callCount);
+
+		if (callCount === 1) {
+			returnValue = function_.apply(this, arguments_);
+			function_ = null;
+		} else if (options.throw === true) {
+			throw new Error(`Function \`${functionName}\` can only be called once`);
+		}
+
+		return returnValue;
+	};
+
+	mimicFunction(onetime, function_);
+	calledFunctions.set(onetime, callCount);
+
+	return onetime;
+};
+
+onetime.callCount = function_ => {
+	if (!calledFunctions.has(function_)) {
+		throw new Error(`The given function \`${function_.name}\` is not wrapped by the \`onetime\` package`);
+	}
+
+	return calledFunctions.get(function_);
+};
+
+/* harmony default export */ const node_modules_onetime = (onetime);
+
+;// CONCATENATED MODULE: external "node:os"
+const external_node_os_namespaceObject = require("node:os");
+;// CONCATENATED MODULE: ./node_modules/.pnpm/human-signals@5.0.0/node_modules/human-signals/build/src/realtime.js
+
+const getRealtimeSignals=()=>{
+const length=SIGRTMAX-SIGRTMIN+1;
+return Array.from({length},getRealtimeSignal)
+};
+
+const getRealtimeSignal=(value,index)=>({
+name:`SIGRT${index+1}`,
+number:SIGRTMIN+index,
+action:"terminate",
+description:"Application-specific signal (realtime)",
+standard:"posix"
+});
+
+const SIGRTMIN=34;
+const SIGRTMAX=64;
+;// CONCATENATED MODULE: ./node_modules/.pnpm/human-signals@5.0.0/node_modules/human-signals/build/src/core.js
+
+
+const SIGNALS=[
+{
+name:"SIGHUP",
+number:1,
+action:"terminate",
+description:"Terminal closed",
+standard:"posix"
+},
+{
+name:"SIGINT",
+number:2,
+action:"terminate",
+description:"User interruption with CTRL-C",
+standard:"ansi"
+},
+{
+name:"SIGQUIT",
+number:3,
+action:"core",
+description:"User interruption with CTRL-\\",
+standard:"posix"
+},
+{
+name:"SIGILL",
+number:4,
+action:"core",
+description:"Invalid machine instruction",
+standard:"ansi"
+},
+{
+name:"SIGTRAP",
+number:5,
+action:"core",
+description:"Debugger breakpoint",
+standard:"posix"
+},
+{
+name:"SIGABRT",
+number:6,
+action:"core",
+description:"Aborted",
+standard:"ansi"
+},
+{
+name:"SIGIOT",
+number:6,
+action:"core",
+description:"Aborted",
+standard:"bsd"
+},
+{
+name:"SIGBUS",
+number:7,
+action:"core",
+description:
+"Bus error due to misaligned, non-existing address or paging error",
+standard:"bsd"
+},
+{
+name:"SIGEMT",
+number:7,
+action:"terminate",
+description:"Command should be emulated but is not implemented",
+standard:"other"
+},
+{
+name:"SIGFPE",
+number:8,
+action:"core",
+description:"Floating point arithmetic error",
+standard:"ansi"
+},
+{
+name:"SIGKILL",
+number:9,
+action:"terminate",
+description:"Forced termination",
+standard:"posix",
+forced:true
+},
+{
+name:"SIGUSR1",
+number:10,
+action:"terminate",
+description:"Application-specific signal",
+standard:"posix"
+},
+{
+name:"SIGSEGV",
+number:11,
+action:"core",
+description:"Segmentation fault",
+standard:"ansi"
+},
+{
+name:"SIGUSR2",
+number:12,
+action:"terminate",
+description:"Application-specific signal",
+standard:"posix"
+},
+{
+name:"SIGPIPE",
+number:13,
+action:"terminate",
+description:"Broken pipe or socket",
+standard:"posix"
+},
+{
+name:"SIGALRM",
+number:14,
+action:"terminate",
+description:"Timeout or timer",
+standard:"posix"
+},
+{
+name:"SIGTERM",
+number:15,
+action:"terminate",
+description:"Termination",
+standard:"ansi"
+},
+{
+name:"SIGSTKFLT",
+number:16,
+action:"terminate",
+description:"Stack is empty or overflowed",
+standard:"other"
+},
+{
+name:"SIGCHLD",
+number:17,
+action:"ignore",
+description:"Child process terminated, paused or unpaused",
+standard:"posix"
+},
+{
+name:"SIGCLD",
+number:17,
+action:"ignore",
+description:"Child process terminated, paused or unpaused",
+standard:"other"
+},
+{
+name:"SIGCONT",
+number:18,
+action:"unpause",
+description:"Unpaused",
+standard:"posix",
+forced:true
+},
+{
+name:"SIGSTOP",
+number:19,
+action:"pause",
+description:"Paused",
+standard:"posix",
+forced:true
+},
+{
+name:"SIGTSTP",
+number:20,
+action:"pause",
+description:"Paused using CTRL-Z or \"suspend\"",
+standard:"posix"
+},
+{
+name:"SIGTTIN",
+number:21,
+action:"pause",
+description:"Background process cannot read terminal input",
+standard:"posix"
+},
+{
+name:"SIGBREAK",
+number:21,
+action:"terminate",
+description:"User interruption with CTRL-BREAK",
+standard:"other"
+},
+{
+name:"SIGTTOU",
+number:22,
+action:"pause",
+description:"Background process cannot write to terminal output",
+standard:"posix"
+},
+{
+name:"SIGURG",
+number:23,
+action:"ignore",
+description:"Socket received out-of-band data",
+standard:"bsd"
+},
+{
+name:"SIGXCPU",
+number:24,
+action:"core",
+description:"Process timed out",
+standard:"bsd"
+},
+{
+name:"SIGXFSZ",
+number:25,
+action:"core",
+description:"File too big",
+standard:"bsd"
+},
+{
+name:"SIGVTALRM",
+number:26,
+action:"terminate",
+description:"Timeout or timer",
+standard:"bsd"
+},
+{
+name:"SIGPROF",
+number:27,
+action:"terminate",
+description:"Timeout or timer",
+standard:"bsd"
+},
+{
+name:"SIGWINCH",
+number:28,
+action:"ignore",
+description:"Terminal window size changed",
+standard:"bsd"
+},
+{
+name:"SIGIO",
+number:29,
+action:"terminate",
+description:"I/O is available",
+standard:"other"
+},
+{
+name:"SIGPOLL",
+number:29,
+action:"terminate",
+description:"Watched event",
+standard:"other"
+},
+{
+name:"SIGINFO",
+number:29,
+action:"ignore",
+description:"Request for process information",
+standard:"other"
+},
+{
+name:"SIGPWR",
+number:30,
+action:"terminate",
+description:"Device running out of power",
+standard:"systemv"
+},
+{
+name:"SIGSYS",
+number:31,
+action:"core",
+description:"Invalid system call",
+standard:"other"
+},
+{
+name:"SIGUNUSED",
+number:31,
+action:"terminate",
+description:"Invalid system call",
+standard:"other"
+}];
+;// CONCATENATED MODULE: ./node_modules/.pnpm/human-signals@5.0.0/node_modules/human-signals/build/src/signals.js
+
+
+
+
+
+
+
+const getSignals=()=>{
+const realtimeSignals=getRealtimeSignals();
+const signals=[...SIGNALS,...realtimeSignals].map(normalizeSignal);
+return signals
+};
+
+
+
+
+
+
+
+const normalizeSignal=({
+name,
+number:defaultNumber,
+description,
+action,
+forced=false,
+standard
+})=>{
+const{
+signals:{[name]:constantSignal}
+}=external_node_os_namespaceObject.constants;
+const supported=constantSignal!==undefined;
+const number=supported?constantSignal:defaultNumber;
+return{name,number,description,supported,action,forced,standard}
+};
+;// CONCATENATED MODULE: ./node_modules/.pnpm/human-signals@5.0.0/node_modules/human-signals/build/src/main.js
+
+
+
+
+
+
+
+const getSignalsByName=()=>{
+const signals=getSignals();
+return Object.fromEntries(signals.map(getSignalByName))
+};
+
+const getSignalByName=({
+name,
+number,
+description,
+supported,
+action,
+forced,
+standard
+})=>[name,{name,number,description,supported,action,forced,standard}];
+
+const signalsByName=getSignalsByName();
+
+
+
+
+const getSignalsByNumber=()=>{
+const signals=getSignals();
+const length=SIGRTMAX+1;
+const signalsA=Array.from({length},(value,number)=>
+getSignalByNumber(number,signals)
+);
+return Object.assign({},...signalsA)
+};
+
+const getSignalByNumber=(number,signals)=>{
+const signal=findSignalByNumber(number,signals);
+
+if(signal===undefined){
+return{}
+}
+
+const{name,description,supported,action,forced,standard}=signal;
+return{
+[number]:{
+name,
+number,
+description,
+supported,
+action,
+forced,
+standard
+}
+}
+};
+
+
+
+const findSignalByNumber=(number,signals)=>{
+const signal=signals.find(({name})=>external_node_os_namespaceObject.constants.signals[name]===number);
+
+if(signal!==undefined){
+return signal
+}
+
+return signals.find((signalA)=>signalA.number===number)
+};
+
+const signalsByNumber=getSignalsByNumber();
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/error.js
+
+
+
+const getErrorPrefix = ({timedOut, timeout, errorCode, signal, signalDescription, exitCode, isCanceled}) => {
+	if (timedOut) {
+		return `timed out after ${timeout} milliseconds`;
+	}
+
+	if (isCanceled) {
+		return 'was canceled';
+	}
+
+	if (errorCode !== undefined) {
+		return `failed with ${errorCode}`;
+	}
+
+	if (signal !== undefined) {
+		return `was killed with ${signal} (${signalDescription})`;
+	}
+
+	if (exitCode !== undefined) {
+		return `failed with exit code ${exitCode}`;
+	}
+
+	return 'failed';
+};
+
+const makeError = ({
+	stdout,
+	stderr,
+	all,
+	error,
+	signal,
+	exitCode,
+	command,
+	escapedCommand,
+	timedOut,
+	isCanceled,
+	killed,
+	parsed: {options: {timeout, cwd = external_node_process_.cwd()}},
+}) => {
+	// `signal` and `exitCode` emitted on `spawned.on('exit')` event can be `null`.
+	// We normalize them to `undefined`
+	exitCode = exitCode === null ? undefined : exitCode;
+	signal = signal === null ? undefined : signal;
+	const signalDescription = signal === undefined ? undefined : signalsByName[signal].description;
+
+	const errorCode = error && error.code;
+
+	const prefix = getErrorPrefix({timedOut, timeout, errorCode, signal, signalDescription, exitCode, isCanceled});
+	const execaMessage = `Command ${prefix}: ${command}`;
+	const isError = Object.prototype.toString.call(error) === '[object Error]';
+	const shortMessage = isError ? `${execaMessage}\n${error.message}` : execaMessage;
+	const message = [shortMessage, stderr, stdout].filter(Boolean).join('\n');
+
+	if (isError) {
+		error.originalMessage = error.message;
+		error.message = message;
+	} else {
+		error = new Error(message);
+	}
+
+	error.shortMessage = shortMessage;
+	error.command = command;
+	error.escapedCommand = escapedCommand;
+	error.exitCode = exitCode;
+	error.signal = signal;
+	error.signalDescription = signalDescription;
+	error.stdout = stdout;
+	error.stderr = stderr;
+	error.cwd = cwd;
+
+	if (all !== undefined) {
+		error.all = all;
+	}
+
+	if ('bufferedData' in error) {
+		delete error.bufferedData;
+	}
+
+	error.failed = true;
+	error.timedOut = Boolean(timedOut);
+	error.isCanceled = isCanceled;
+	error.killed = killed && !timedOut;
+
+	return error;
+};
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/stdio.js
+const aliases = ['stdin', 'stdout', 'stderr'];
+
+const hasAlias = options => aliases.some(alias => options[alias] !== undefined);
+
+const normalizeStdio = options => {
+	if (!options) {
+		return;
+	}
+
+	const {stdio} = options;
+
+	if (stdio === undefined) {
+		return aliases.map(alias => options[alias]);
+	}
+
+	if (hasAlias(options)) {
+		throw new Error(`It's not possible to provide \`stdio\` in combination with one of ${aliases.map(alias => `\`${alias}\``).join(', ')}`);
+	}
+
+	if (typeof stdio === 'string') {
+		return stdio;
+	}
+
+	if (!Array.isArray(stdio)) {
+		throw new TypeError(`Expected \`stdio\` to be of type \`string\` or \`Array\`, got \`${typeof stdio}\``);
+	}
+
+	const length = Math.max(stdio.length, aliases.length);
+	return Array.from({length}, (value, index) => stdio[index]);
+};
+
+// `ipc` is pushed unless it is already present
+const stdio_normalizeStdioNode = options => {
+	const stdio = normalizeStdio(options);
+
+	if (stdio === 'ipc') {
+		return 'ipc';
+	}
+
+	if (stdio === undefined || typeof stdio === 'string') {
+		return [stdio, stdio, stdio, 'ipc'];
+	}
+
+	if (stdio.includes('ipc')) {
+		return stdio;
+	}
+
+	return [...stdio, 'ipc'];
+};
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/signal-exit@4.1.0/node_modules/signal-exit/dist/mjs/signals.js
+/**
+ * This is not the set of all possible signals.
+ *
+ * It IS, however, the set of all signals that trigger
+ * an exit on either Linux or BSD systems.  Linux is a
+ * superset of the signal names supported on BSD, and
+ * the unknown signals just fail to register, so we can
+ * catch that easily enough.
+ *
+ * Windows signals are a different set, since there are
+ * signals that terminate Windows processes, but don't
+ * terminate (or don't even exist) on Posix systems.
+ *
+ * Don't bother with SIGKILL.  It's uncatchable, which
+ * means that we can't fire any callbacks anyway.
+ *
+ * If a user does happen to register a handler on a non-
+ * fatal signal like SIGWINCH or something, and then
+ * exit, it'll end up firing `process.emit('exit')`, so
+ * the handler will be fired anyway.
+ *
+ * SIGBUS, SIGFPE, SIGSEGV and SIGILL, when not raised
+ * artificially, inherently leave the process in a
+ * state from which it is not safe to try and enter JS
+ * listeners.
+ */
+const signals = [];
+signals.push('SIGHUP', 'SIGINT', 'SIGTERM');
+if (process.platform !== 'win32') {
+    signals.push('SIGALRM', 'SIGABRT', 'SIGVTALRM', 'SIGXCPU', 'SIGXFSZ', 'SIGUSR2', 'SIGTRAP', 'SIGSYS', 'SIGQUIT', 'SIGIOT'
+    // should detect profiler and enable/disable accordingly.
+    // see #21
+    // 'SIGPROF'
+    );
+}
+if (process.platform === 'linux') {
+    signals.push('SIGIO', 'SIGPOLL', 'SIGPWR', 'SIGSTKFLT');
+}
+//# sourceMappingURL=signals.js.map
+;// CONCATENATED MODULE: ./node_modules/.pnpm/signal-exit@4.1.0/node_modules/signal-exit/dist/mjs/index.js
+// Note: since nyc uses this module to output coverage, any lines
+// that are in the direct sync flow of nyc's outputCoverage are
+// ignored, since we can never get coverage for them.
+// grab a reference to node's real process object right away
+
+
+const processOk = (process) => !!process &&
+    typeof process === 'object' &&
+    typeof process.removeListener === 'function' &&
+    typeof process.emit === 'function' &&
+    typeof process.reallyExit === 'function' &&
+    typeof process.listeners === 'function' &&
+    typeof process.kill === 'function' &&
+    typeof process.pid === 'number' &&
+    typeof process.on === 'function';
+const kExitEmitter = Symbol.for('signal-exit emitter');
+const global = globalThis;
+const ObjectDefineProperty = Object.defineProperty.bind(Object);
+// teeny special purpose ee
+class Emitter {
+    emitted = {
+        afterExit: false,
+        exit: false,
+    };
+    listeners = {
+        afterExit: [],
+        exit: [],
+    };
+    count = 0;
+    id = Math.random();
+    constructor() {
+        if (global[kExitEmitter]) {
+            return global[kExitEmitter];
+        }
+        ObjectDefineProperty(global, kExitEmitter, {
+            value: this,
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        });
+    }
+    on(ev, fn) {
+        this.listeners[ev].push(fn);
+    }
+    removeListener(ev, fn) {
+        const list = this.listeners[ev];
+        const i = list.indexOf(fn);
+        /* c8 ignore start */
+        if (i === -1) {
+            return;
+        }
+        /* c8 ignore stop */
+        if (i === 0 && list.length === 1) {
+            list.length = 0;
+        }
+        else {
+            list.splice(i, 1);
+        }
+    }
+    emit(ev, code, signal) {
+        if (this.emitted[ev]) {
+            return false;
+        }
+        this.emitted[ev] = true;
+        let ret = false;
+        for (const fn of this.listeners[ev]) {
+            ret = fn(code, signal) === true || ret;
+        }
+        if (ev === 'exit') {
+            ret = this.emit('afterExit', code, signal) || ret;
+        }
+        return ret;
+    }
+}
+class SignalExitBase {
+}
+const signalExitWrap = (handler) => {
+    return {
+        onExit(cb, opts) {
+            return handler.onExit(cb, opts);
+        },
+        load() {
+            return handler.load();
+        },
+        unload() {
+            return handler.unload();
+        },
+    };
+};
+class SignalExitFallback extends SignalExitBase {
+    onExit() {
+        return () => { };
+    }
+    load() { }
+    unload() { }
+}
+class SignalExit extends SignalExitBase {
+    // "SIGHUP" throws an `ENOSYS` error on Windows,
+    // so use a supported signal instead
+    /* c8 ignore start */
+    #hupSig = mjs_process.platform === 'win32' ? 'SIGINT' : 'SIGHUP';
+    /* c8 ignore stop */
+    #emitter = new Emitter();
+    #process;
+    #originalProcessEmit;
+    #originalProcessReallyExit;
+    #sigListeners = {};
+    #loaded = false;
+    constructor(process) {
+        super();
+        this.#process = process;
+        // { <signal>: <listener fn>, ... }
+        this.#sigListeners = {};
+        for (const sig of signals) {
+            this.#sigListeners[sig] = () => {
+                // If there are no other listeners, an exit is coming!
+                // Simplest way: remove us and then re-send the signal.
+                // We know that this will kill the process, so we can
+                // safely emit now.
+                const listeners = this.#process.listeners(sig);
+                let { count } = this.#emitter;
+                // This is a workaround for the fact that signal-exit v3 and signal
+                // exit v4 are not aware of each other, and each will attempt to let
+                // the other handle it, so neither of them do. To correct this, we
+                // detect if we're the only handler *except* for previous versions
+                // of signal-exit, and increment by the count of listeners it has
+                // created.
+                /* c8 ignore start */
+                const p = process;
+                if (typeof p.__signal_exit_emitter__ === 'object' &&
+                    typeof p.__signal_exit_emitter__.count === 'number') {
+                    count += p.__signal_exit_emitter__.count;
+                }
+                /* c8 ignore stop */
+                if (listeners.length === count) {
+                    this.unload();
+                    const ret = this.#emitter.emit('exit', null, sig);
+                    /* c8 ignore start */
+                    const s = sig === 'SIGHUP' ? this.#hupSig : sig;
+                    if (!ret)
+                        process.kill(process.pid, s);
+                    /* c8 ignore stop */
+                }
+            };
+        }
+        this.#originalProcessReallyExit = process.reallyExit;
+        this.#originalProcessEmit = process.emit;
+    }
+    onExit(cb, opts) {
+        /* c8 ignore start */
+        if (!processOk(this.#process)) {
+            return () => { };
+        }
+        /* c8 ignore stop */
+        if (this.#loaded === false) {
+            this.load();
+        }
+        const ev = opts?.alwaysLast ? 'afterExit' : 'exit';
+        this.#emitter.on(ev, cb);
+        return () => {
+            this.#emitter.removeListener(ev, cb);
+            if (this.#emitter.listeners['exit'].length === 0 &&
+                this.#emitter.listeners['afterExit'].length === 0) {
+                this.unload();
+            }
+        };
+    }
+    load() {
+        if (this.#loaded) {
+            return;
+        }
+        this.#loaded = true;
+        // This is the number of onSignalExit's that are in play.
+        // It's important so that we can count the correct number of
+        // listeners on signals, and don't wait for the other one to
+        // handle it instead of us.
+        this.#emitter.count += 1;
+        for (const sig of signals) {
+            try {
+                const fn = this.#sigListeners[sig];
+                if (fn)
+                    this.#process.on(sig, fn);
+            }
+            catch (_) { }
+        }
+        this.#process.emit = (ev, ...a) => {
+            return this.#processEmit(ev, ...a);
+        };
+        this.#process.reallyExit = (code) => {
+            return this.#processReallyExit(code);
+        };
+    }
+    unload() {
+        if (!this.#loaded) {
+            return;
+        }
+        this.#loaded = false;
+        signals.forEach(sig => {
+            const listener = this.#sigListeners[sig];
+            /* c8 ignore start */
+            if (!listener) {
+                throw new Error('Listener not defined for signal: ' + sig);
+            }
+            /* c8 ignore stop */
+            try {
+                this.#process.removeListener(sig, listener);
+                /* c8 ignore start */
+            }
+            catch (_) { }
+            /* c8 ignore stop */
+        });
+        this.#process.emit = this.#originalProcessEmit;
+        this.#process.reallyExit = this.#originalProcessReallyExit;
+        this.#emitter.count -= 1;
+    }
+    #processReallyExit(code) {
+        /* c8 ignore start */
+        if (!processOk(this.#process)) {
+            return 0;
+        }
+        this.#process.exitCode = code || 0;
+        /* c8 ignore stop */
+        this.#emitter.emit('exit', this.#process.exitCode, null);
+        return this.#originalProcessReallyExit.call(this.#process, this.#process.exitCode);
+    }
+    #processEmit(ev, ...args) {
+        const og = this.#originalProcessEmit;
+        if (ev === 'exit' && processOk(this.#process)) {
+            if (typeof args[0] === 'number') {
+                this.#process.exitCode = args[0];
+                /* c8 ignore start */
+            }
+            /* c8 ignore start */
+            const ret = og.call(this.#process, ev, ...args);
+            /* c8 ignore start */
+            this.#emitter.emit('exit', this.#process.exitCode, null);
+            /* c8 ignore stop */
+            return ret;
+        }
+        else {
+            return og.call(this.#process, ev, ...args);
+        }
+    }
+}
+const mjs_process = globalThis.process;
+// wrap so that we call the method on the actual handler, without
+// exporting it directly.
+const { 
+/**
+ * Called when the process is exiting, whether via signal, explicit
+ * exit, or running out of stuff to do.
+ *
+ * If the global process object is not suitable for instrumentation,
+ * then this will be a no-op.
+ *
+ * Returns a function that may be used to unload signal-exit.
+ */
+onExit, 
+/**
+ * Load the listeners.  Likely you never need to call this, unless
+ * doing a rather deep integration with signal-exit functionality.
+ * Mostly exposed for the benefit of testing.
+ *
+ * @internal
+ */
+load, 
+/**
+ * Unload the listeners.  Likely you never need to call this, unless
+ * doing a rather deep integration with signal-exit functionality.
+ * Mostly exposed for the benefit of testing.
+ *
+ * @internal
+ */
+unload, } = signalExitWrap(processOk(mjs_process) ? new SignalExit(mjs_process) : new SignalExitFallback());
+//# sourceMappingURL=index.js.map
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/kill.js
+
+
+
+const DEFAULT_FORCE_KILL_TIMEOUT = 1000 * 5;
+
+// Monkey-patches `childProcess.kill()` to add `forceKillAfterTimeout` behavior
+const spawnedKill = (kill, signal = 'SIGTERM', options = {}) => {
+	const killResult = kill(signal);
+	setKillTimeout(kill, signal, options, killResult);
+	return killResult;
+};
+
+const setKillTimeout = (kill, signal, options, killResult) => {
+	if (!shouldForceKill(signal, options, killResult)) {
+		return;
+	}
+
+	const timeout = getForceKillAfterTimeout(options);
+	const t = setTimeout(() => {
+		kill('SIGKILL');
+	}, timeout);
+
+	// Guarded because there's no `.unref()` when `execa` is used in the renderer
+	// process in Electron. This cannot be tested since we don't run tests in
+	// Electron.
+	// istanbul ignore else
+	if (t.unref) {
+		t.unref();
+	}
+};
+
+const shouldForceKill = (signal, {forceKillAfterTimeout}, killResult) => isSigterm(signal) && forceKillAfterTimeout !== false && killResult;
+
+const isSigterm = signal => signal === external_node_os_namespaceObject.constants.signals.SIGTERM
+		|| (typeof signal === 'string' && signal.toUpperCase() === 'SIGTERM');
+
+const getForceKillAfterTimeout = ({forceKillAfterTimeout = true}) => {
+	if (forceKillAfterTimeout === true) {
+		return DEFAULT_FORCE_KILL_TIMEOUT;
+	}
+
+	if (!Number.isFinite(forceKillAfterTimeout) || forceKillAfterTimeout < 0) {
+		throw new TypeError(`Expected the \`forceKillAfterTimeout\` option to be a non-negative integer, got \`${forceKillAfterTimeout}\` (${typeof forceKillAfterTimeout})`);
+	}
+
+	return forceKillAfterTimeout;
+};
+
+// `childProcess.cancel()`
+const spawnedCancel = (spawned, context) => {
+	const killResult = spawned.kill();
+
+	if (killResult) {
+		context.isCanceled = true;
+	}
+};
+
+const timeoutKill = (spawned, signal, reject) => {
+	spawned.kill(signal);
+	reject(Object.assign(new Error('Timed out'), {timedOut: true, signal}));
+};
+
+// `timeout` option handling
+const setupTimeout = (spawned, {timeout, killSignal = 'SIGTERM'}, spawnedPromise) => {
+	if (timeout === 0 || timeout === undefined) {
+		return spawnedPromise;
+	}
+
+	let timeoutId;
+	const timeoutPromise = new Promise((resolve, reject) => {
+		timeoutId = setTimeout(() => {
+			timeoutKill(spawned, killSignal, reject);
+		}, timeout);
+	});
+
+	const safeSpawnedPromise = spawnedPromise.finally(() => {
+		clearTimeout(timeoutId);
+	});
+
+	return Promise.race([timeoutPromise, safeSpawnedPromise]);
+};
+
+const validateTimeout = ({timeout}) => {
+	if (timeout !== undefined && (!Number.isFinite(timeout) || timeout < 0)) {
+		throw new TypeError(`Expected the \`timeout\` option to be a non-negative integer, got \`${timeout}\` (${typeof timeout})`);
+	}
+};
+
+// `cleanup` option handling
+const setExitHandler = async (spawned, {cleanup, detached}, timedPromise) => {
+	if (!cleanup || detached) {
+		return timedPromise;
+	}
+
+	const removeExitHandler = onExit(() => {
+		spawned.kill();
+	});
+
+	return timedPromise.finally(() => {
+		removeExitHandler();
+	});
+};
+
+// EXTERNAL MODULE: external "node:fs"
+var external_node_fs_ = __nccwpck_require__(7561);
+;// CONCATENATED MODULE: ./node_modules/.pnpm/is-stream@3.0.0/node_modules/is-stream/index.js
+function isStream(stream) {
+	return stream !== null
+		&& typeof stream === 'object'
+		&& typeof stream.pipe === 'function';
+}
+
+function isWritableStream(stream) {
+	return isStream(stream)
+		&& stream.writable !== false
+		&& typeof stream._write === 'function'
+		&& typeof stream._writableState === 'object';
+}
+
+function isReadableStream(stream) {
+	return isStream(stream)
+		&& stream.readable !== false
+		&& typeof stream._read === 'function'
+		&& typeof stream._readableState === 'object';
+}
+
+function isDuplexStream(stream) {
+	return isWritableStream(stream)
+		&& isReadableStream(stream);
+}
+
+function isTransformStream(stream) {
+	return isDuplexStream(stream)
+		&& typeof stream._transform === 'function';
+}
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/pipe.js
+
+
+
+
+const isExecaChildProcess = target => target instanceof external_node_child_process_namespaceObject.ChildProcess && typeof target.then === 'function';
+
+const pipeToTarget = (spawned, streamName, target) => {
+	if (typeof target === 'string') {
+		spawned[streamName].pipe((0,external_node_fs_.createWriteStream)(target));
+		return spawned;
+	}
+
+	if (isWritableStream(target)) {
+		spawned[streamName].pipe(target);
+		return spawned;
+	}
+
+	if (!isExecaChildProcess(target)) {
+		throw new TypeError('The second argument must be a string, a stream or an Execa child process.');
+	}
+
+	if (!isWritableStream(target.stdin)) {
+		throw new TypeError('The target child process\'s stdin must be available.');
+	}
+
+	spawned[streamName].pipe(target.stdin);
+	return target;
+};
+
+const addPipeMethods = spawned => {
+	if (spawned.stdout !== null) {
+		spawned.pipeStdout = pipeToTarget.bind(undefined, spawned, 'stdout');
+	}
+
+	if (spawned.stderr !== null) {
+		spawned.pipeStderr = pipeToTarget.bind(undefined, spawned, 'stderr');
+	}
+
+	if (spawned.all !== undefined) {
+		spawned.pipeAll = pipeToTarget.bind(undefined, spawned, 'all');
+	}
+};
+
+;// CONCATENATED MODULE: external "node:timers/promises"
+const external_node_timers_promises_namespaceObject = require("node:timers/promises");
+;// CONCATENATED MODULE: ./node_modules/.pnpm/get-stream@8.0.1/node_modules/get-stream/source/contents.js
+const contents_getStreamContents = async (stream, {init, convertChunk, getSize, truncateChunk, addChunk, getFinalChunk, finalize}, {maxBuffer = Number.POSITIVE_INFINITY} = {}) => {
+	if (!isAsyncIterable(stream)) {
+		throw new Error('The first argument must be a Readable, a ReadableStream, or an async iterable.');
+	}
+
+	const state = init();
+	state.length = 0;
+
+	try {
+		for await (const chunk of stream) {
+			const chunkType = getChunkType(chunk);
+			const convertedChunk = convertChunk[chunkType](chunk, state);
+			appendChunk({convertedChunk, state, getSize, truncateChunk, addChunk, maxBuffer});
+		}
+
+		appendFinalChunk({state, convertChunk, getSize, truncateChunk, addChunk, getFinalChunk, maxBuffer});
+		return finalize(state);
+	} catch (error) {
+		error.bufferedData = finalize(state);
+		throw error;
+	}
+};
+
+const appendFinalChunk = ({state, getSize, truncateChunk, addChunk, getFinalChunk, maxBuffer}) => {
+	const convertedChunk = getFinalChunk(state);
+	if (convertedChunk !== undefined) {
+		appendChunk({convertedChunk, state, getSize, truncateChunk, addChunk, maxBuffer});
+	}
+};
+
+const appendChunk = ({convertedChunk, state, getSize, truncateChunk, addChunk, maxBuffer}) => {
+	const chunkSize = getSize(convertedChunk);
+	const newLength = state.length + chunkSize;
+
+	if (newLength <= maxBuffer) {
+		addNewChunk(convertedChunk, state, addChunk, newLength);
+		return;
+	}
+
+	const truncatedChunk = truncateChunk(convertedChunk, maxBuffer - state.length);
+
+	if (truncatedChunk !== undefined) {
+		addNewChunk(truncatedChunk, state, addChunk, maxBuffer);
+	}
+
+	throw new MaxBufferError();
+};
+
+const addNewChunk = (convertedChunk, state, addChunk, newLength) => {
+	state.contents = addChunk(convertedChunk, state, newLength);
+	state.length = newLength;
+};
+
+const isAsyncIterable = stream => typeof stream === 'object' && stream !== null && typeof stream[Symbol.asyncIterator] === 'function';
+
+const getChunkType = chunk => {
+	const typeOfChunk = typeof chunk;
+
+	if (typeOfChunk === 'string') {
+		return 'string';
+	}
+
+	if (typeOfChunk !== 'object' || chunk === null) {
+		return 'others';
+	}
+
+	// eslint-disable-next-line n/prefer-global/buffer
+	if (globalThis.Buffer?.isBuffer(chunk)) {
+		return 'buffer';
+	}
+
+	const prototypeName = objectToString.call(chunk);
+
+	if (prototypeName === '[object ArrayBuffer]') {
+		return 'arrayBuffer';
+	}
+
+	if (prototypeName === '[object DataView]') {
+		return 'dataView';
+	}
+
+	if (
+		Number.isInteger(chunk.byteLength)
+		&& Number.isInteger(chunk.byteOffset)
+		&& objectToString.call(chunk.buffer) === '[object ArrayBuffer]'
+	) {
+		return 'typedArray';
+	}
+
+	return 'others';
+};
+
+const {toString: objectToString} = Object.prototype;
+
+class MaxBufferError extends Error {
+	name = 'MaxBufferError';
+
+	constructor() {
+		super('maxBuffer exceeded');
+	}
+}
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/get-stream@8.0.1/node_modules/get-stream/source/utils.js
+const identity = value => value;
+
+const noop = () => undefined;
+
+const getContentsProp = ({contents}) => contents;
+
+const throwObjectStream = chunk => {
+	throw new Error(`Streams in object mode are not supported: ${String(chunk)}`);
+};
+
+const getLengthProp = convertedChunk => convertedChunk.length;
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/get-stream@8.0.1/node_modules/get-stream/source/array.js
+
+
+
+async function getStreamAsArray(stream, options) {
+	return getStreamContents(stream, arrayMethods, options);
+}
+
+const initArray = () => ({contents: []});
+
+const increment = () => 1;
+
+const addArrayChunk = (convertedChunk, {contents}) => {
+	contents.push(convertedChunk);
+	return contents;
+};
+
+const arrayMethods = {
+	init: initArray,
+	convertChunk: {
+		string: identity,
+		buffer: identity,
+		arrayBuffer: identity,
+		dataView: identity,
+		typedArray: identity,
+		others: identity,
+	},
+	getSize: increment,
+	truncateChunk: noop,
+	addChunk: addArrayChunk,
+	getFinalChunk: noop,
+	finalize: getContentsProp,
+};
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/get-stream@8.0.1/node_modules/get-stream/source/array-buffer.js
+
+
+
+async function getStreamAsArrayBuffer(stream, options) {
+	return contents_getStreamContents(stream, arrayBufferMethods, options);
+}
+
+const initArrayBuffer = () => ({contents: new ArrayBuffer(0)});
+
+const useTextEncoder = chunk => textEncoder.encode(chunk);
+const textEncoder = new TextEncoder();
+
+const useUint8Array = chunk => new Uint8Array(chunk);
+
+const useUint8ArrayWithOffset = chunk => new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+
+const truncateArrayBufferChunk = (convertedChunk, chunkSize) => convertedChunk.slice(0, chunkSize);
+
+// `contents` is an increasingly growing `Uint8Array`.
+const addArrayBufferChunk = (convertedChunk, {contents, length: previousLength}, length) => {
+	const newContents = hasArrayBufferResize() ? resizeArrayBuffer(contents, length) : resizeArrayBufferSlow(contents, length);
+	new Uint8Array(newContents).set(convertedChunk, previousLength);
+	return newContents;
+};
+
+// Without `ArrayBuffer.resize()`, `contents` size is always a power of 2.
+// This means its last bytes are zeroes (not stream data), which need to be
+// trimmed at the end with `ArrayBuffer.slice()`.
+const resizeArrayBufferSlow = (contents, length) => {
+	if (length <= contents.byteLength) {
+		return contents;
+	}
+
+	const arrayBuffer = new ArrayBuffer(getNewContentsLength(length));
+	new Uint8Array(arrayBuffer).set(new Uint8Array(contents), 0);
+	return arrayBuffer;
+};
+
+// With `ArrayBuffer.resize()`, `contents` size matches exactly the size of
+// the stream data. It does not include extraneous zeroes to trim at the end.
+// The underlying `ArrayBuffer` does allocate a number of bytes that is a power
+// of 2, but those bytes are only visible after calling `ArrayBuffer.resize()`.
+const resizeArrayBuffer = (contents, length) => {
+	if (length <= contents.maxByteLength) {
+		contents.resize(length);
+		return contents;
+	}
+
+	const arrayBuffer = new ArrayBuffer(length, {maxByteLength: getNewContentsLength(length)});
+	new Uint8Array(arrayBuffer).set(new Uint8Array(contents), 0);
+	return arrayBuffer;
+};
+
+// Retrieve the closest `length` that is both >= and a power of 2
+const getNewContentsLength = length => SCALE_FACTOR ** Math.ceil(Math.log(length) / Math.log(SCALE_FACTOR));
+
+const SCALE_FACTOR = 2;
+
+const finalizeArrayBuffer = ({contents, length}) => hasArrayBufferResize() ? contents : contents.slice(0, length);
+
+// `ArrayBuffer.slice()` is slow. When `ArrayBuffer.resize()` is available
+// (Node >=20.0.0, Safari >=16.4 and Chrome), we can use it instead.
+// eslint-disable-next-line no-warning-comments
+// TODO: remove after dropping support for Node 20.
+// eslint-disable-next-line no-warning-comments
+// TODO: use `ArrayBuffer.transferToFixedLength()` instead once it is available
+const hasArrayBufferResize = () => 'resize' in ArrayBuffer.prototype;
+
+const arrayBufferMethods = {
+	init: initArrayBuffer,
+	convertChunk: {
+		string: useTextEncoder,
+		buffer: useUint8Array,
+		arrayBuffer: useUint8Array,
+		dataView: useUint8ArrayWithOffset,
+		typedArray: useUint8ArrayWithOffset,
+		others: throwObjectStream,
+	},
+	getSize: getLengthProp,
+	truncateChunk: truncateArrayBufferChunk,
+	addChunk: addArrayBufferChunk,
+	getFinalChunk: noop,
+	finalize: finalizeArrayBuffer,
+};
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/get-stream@8.0.1/node_modules/get-stream/source/buffer.js
+
+
+async function getStreamAsBuffer(stream, options) {
+	if (!('Buffer' in globalThis)) {
+		throw new Error('getStreamAsBuffer() is only supported in Node.js');
+	}
+
+	try {
+		return arrayBufferToNodeBuffer(await getStreamAsArrayBuffer(stream, options));
+	} catch (error) {
+		if (error.bufferedData !== undefined) {
+			error.bufferedData = arrayBufferToNodeBuffer(error.bufferedData);
+		}
+
+		throw error;
+	}
+}
+
+// eslint-disable-next-line n/prefer-global/buffer
+const arrayBufferToNodeBuffer = arrayBuffer => globalThis.Buffer.from(arrayBuffer);
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/get-stream@8.0.1/node_modules/get-stream/source/string.js
+
+
+
+async function getStreamAsString(stream, options) {
+	return contents_getStreamContents(stream, stringMethods, options);
+}
+
+const initString = () => ({contents: '', textDecoder: new TextDecoder()});
+
+const useTextDecoder = (chunk, {textDecoder}) => textDecoder.decode(chunk, {stream: true});
+
+const addStringChunk = (convertedChunk, {contents}) => contents + convertedChunk;
+
+const truncateStringChunk = (convertedChunk, chunkSize) => convertedChunk.slice(0, chunkSize);
+
+const getFinalStringChunk = ({textDecoder}) => {
+	const finalChunk = textDecoder.decode();
+	return finalChunk === '' ? undefined : finalChunk;
+};
+
+const stringMethods = {
+	init: initString,
+	convertChunk: {
+		string: identity,
+		buffer: useTextDecoder,
+		arrayBuffer: useTextDecoder,
+		dataView: useTextDecoder,
+		typedArray: useTextDecoder,
+		others: throwObjectStream,
+	},
+	getSize: getLengthProp,
+	truncateChunk: truncateStringChunk,
+	addChunk: addStringChunk,
+	getFinalChunk: getFinalStringChunk,
+	finalize: getContentsProp,
+};
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/get-stream@8.0.1/node_modules/get-stream/source/index.js
+
+
+
+
+
+
+// EXTERNAL MODULE: ./node_modules/.pnpm/merge-stream@2.0.0/node_modules/merge-stream/index.js
+var merge_stream = __nccwpck_require__(237);
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/stream.js
+
+
+
+
+
+
+const validateInputOptions = input => {
+	if (input !== undefined) {
+		throw new TypeError('The `input` and `inputFile` options cannot be both set.');
+	}
+};
+
+const getInputSync = ({input, inputFile}) => {
+	if (typeof inputFile !== 'string') {
+		return input;
+	}
+
+	validateInputOptions(input);
+	return (0,external_node_fs_.readFileSync)(inputFile);
+};
+
+// `input` and `inputFile` option in sync mode
+const handleInputSync = options => {
+	const input = getInputSync(options);
+
+	if (isStream(input)) {
+		throw new TypeError('The `input` option cannot be a stream in sync mode');
+	}
+
+	return input;
+};
+
+const getInput = ({input, inputFile}) => {
+	if (typeof inputFile !== 'string') {
+		return input;
+	}
+
+	validateInputOptions(input);
+	return (0,external_node_fs_.createReadStream)(inputFile);
+};
+
+// `input` and `inputFile` option in async mode
+const handleInput = (spawned, options) => {
+	const input = getInput(options);
+
+	if (input === undefined) {
+		return;
+	}
+
+	if (isStream(input)) {
+		input.pipe(spawned.stdin);
+	} else {
+		spawned.stdin.end(input);
+	}
+};
+
+// `all` interleaves `stdout` and `stderr`
+const makeAllStream = (spawned, {all}) => {
+	if (!all || (!spawned.stdout && !spawned.stderr)) {
+		return;
+	}
+
+	const mixed = merge_stream();
+
+	if (spawned.stdout) {
+		mixed.add(spawned.stdout);
+	}
+
+	if (spawned.stderr) {
+		mixed.add(spawned.stderr);
+	}
+
+	return mixed;
+};
+
+// On failure, `result.stdout|stderr|all` should contain the currently buffered stream
+const getBufferedData = async (stream, streamPromise) => {
+	// When `buffer` is `false`, `streamPromise` is `undefined` and there is no buffered data to retrieve
+	if (!stream || streamPromise === undefined) {
+		return;
+	}
+
+	// Wait for the `all` stream to receive the last chunk before destroying the stream
+	await (0,external_node_timers_promises_namespaceObject.setTimeout)(0);
+
+	stream.destroy();
+
+	try {
+		return await streamPromise;
+	} catch (error) {
+		return error.bufferedData;
+	}
+};
+
+const getStreamPromise = (stream, {encoding, buffer, maxBuffer}) => {
+	if (!stream || !buffer) {
+		return;
+	}
+
+	// eslint-disable-next-line unicorn/text-encoding-identifier-case
+	if (encoding === 'utf8' || encoding === 'utf-8') {
+		return getStreamAsString(stream, {maxBuffer});
+	}
+
+	if (encoding === null || encoding === 'buffer') {
+		return getStreamAsBuffer(stream, {maxBuffer});
+	}
+
+	return applyEncoding(stream, maxBuffer, encoding);
+};
+
+const applyEncoding = async (stream, maxBuffer, encoding) => {
+	const buffer = await getStreamAsBuffer(stream, {maxBuffer});
+	return buffer.toString(encoding);
+};
+
+// Retrieve result of child process: exit code, signal, error, streams (stdout/stderr/all)
+const getSpawnedResult = async ({stdout, stderr, all}, {encoding, buffer, maxBuffer}, processDone) => {
+	const stdoutPromise = getStreamPromise(stdout, {encoding, buffer, maxBuffer});
+	const stderrPromise = getStreamPromise(stderr, {encoding, buffer, maxBuffer});
+	const allPromise = getStreamPromise(all, {encoding, buffer, maxBuffer: maxBuffer * 2});
+
+	try {
+		return await Promise.all([processDone, stdoutPromise, stderrPromise, allPromise]);
+	} catch (error) {
+		return Promise.all([
+			{error, signal: error.signal, timedOut: error.timedOut},
+			getBufferedData(stdout, stdoutPromise),
+			getBufferedData(stderr, stderrPromise),
+			getBufferedData(all, allPromise),
+		]);
+	}
+};
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/promise.js
+// eslint-disable-next-line unicorn/prefer-top-level-await
+const nativePromisePrototype = (async () => {})().constructor.prototype;
+
+const descriptors = ['then', 'catch', 'finally'].map(property => [
+	property,
+	Reflect.getOwnPropertyDescriptor(nativePromisePrototype, property),
+]);
+
+// The return value is a mixin of `childProcess` and `Promise`
+const mergePromise = (spawned, promise) => {
+	for (const [property, descriptor] of descriptors) {
+		// Starting the main `promise` is deferred to avoid consuming streams
+		const value = typeof promise === 'function'
+			? (...args) => Reflect.apply(descriptor.value, promise(), args)
+			: descriptor.value.bind(promise);
+
+		Reflect.defineProperty(spawned, property, {...descriptor, value});
+	}
+};
+
+// Use promises instead of `child_process` events
+const getSpawnedPromise = spawned => new Promise((resolve, reject) => {
+	spawned.on('exit', (exitCode, signal) => {
+		resolve({exitCode, signal});
+	});
+
+	spawned.on('error', error => {
+		reject(error);
+	});
+
+	if (spawned.stdin) {
+		spawned.stdin.on('error', error => {
+			reject(error);
+		});
+	}
+});
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/command.js
+
+
+
+const normalizeArgs = (file, args = []) => {
+	if (!Array.isArray(args)) {
+		return [file];
+	}
+
+	return [file, ...args];
+};
+
+const NO_ESCAPE_REGEXP = /^[\w.-]+$/;
+
+const escapeArg = arg => {
+	if (typeof arg !== 'string' || NO_ESCAPE_REGEXP.test(arg)) {
+		return arg;
+	}
+
+	return `"${arg.replaceAll('"', '\\"')}"`;
+};
+
+const joinCommand = (file, args) => normalizeArgs(file, args).join(' ');
+
+const getEscapedCommand = (file, args) => normalizeArgs(file, args).map(arg => escapeArg(arg)).join(' ');
+
+const SPACES_REGEXP = / +/g;
+
+// Handle `execaCommand()`
+const command_parseCommand = command => {
+	const tokens = [];
+	for (const token of command.trim().split(SPACES_REGEXP)) {
+		// Allow spaces to be escaped by a backslash if not meant as a delimiter
+		const previousToken = tokens.at(-1);
+		if (previousToken && previousToken.endsWith('\\')) {
+			// Merge previous token with current one
+			tokens[tokens.length - 1] = `${previousToken.slice(0, -1)} ${token}`;
+		} else {
+			tokens.push(token);
+		}
+	}
+
+	return tokens;
+};
+
+const parseExpression = expression => {
+	const typeOfExpression = typeof expression;
+
+	if (typeOfExpression === 'string') {
+		return expression;
+	}
+
+	if (typeOfExpression === 'number') {
+		return String(expression);
+	}
+
+	if (
+		typeOfExpression === 'object'
+		&& expression !== null
+		&& !(expression instanceof external_node_child_process_namespaceObject.ChildProcess)
+		&& 'stdout' in expression
+	) {
+		const typeOfStdout = typeof expression.stdout;
+
+		if (typeOfStdout === 'string') {
+			return expression.stdout;
+		}
+
+		if (external_node_buffer_namespaceObject.Buffer.isBuffer(expression.stdout)) {
+			return expression.stdout.toString();
+		}
+
+		throw new TypeError(`Unexpected "${typeOfStdout}" stdout in template expression`);
+	}
+
+	throw new TypeError(`Unexpected "${typeOfExpression}" in template expression`);
+};
+
+const concatTokens = (tokens, nextTokens, isNew) => isNew || tokens.length === 0 || nextTokens.length === 0
+	? [...tokens, ...nextTokens]
+	: [
+		...tokens.slice(0, -1),
+		`${tokens.at(-1)}${nextTokens[0]}`,
+		...nextTokens.slice(1),
+	];
+
+const parseTemplate = ({templates, expressions, tokens, index, template}) => {
+	const templateString = template ?? templates.raw[index];
+	const templateTokens = templateString.split(SPACES_REGEXP).filter(Boolean);
+	const newTokens = concatTokens(
+		tokens,
+		templateTokens,
+		templateString.startsWith(' '),
+	);
+
+	if (index === expressions.length) {
+		return newTokens;
+	}
+
+	const expression = expressions[index];
+	const expressionTokens = Array.isArray(expression)
+		? expression.map(expression => parseExpression(expression))
+		: [parseExpression(expression)];
+	return concatTokens(
+		newTokens,
+		expressionTokens,
+		templateString.endsWith(' '),
+	);
+};
+
+const parseTemplates = (templates, expressions) => {
+	let tokens = [];
+
+	for (const [index, template] of templates.entries()) {
+		tokens = parseTemplate({templates, expressions, tokens, index, template});
+	}
+
+	return tokens;
+};
+
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/verbose.js
+
+
+
+const verboseDefault = (0,external_node_util_namespaceObject.debuglog)('execa').enabled;
+
+const padField = (field, padding) => String(field).padStart(padding, '0');
+
+const getTimestamp = () => {
+	const date = new Date();
+	return `${padField(date.getHours(), 2)}:${padField(date.getMinutes(), 2)}:${padField(date.getSeconds(), 2)}.${padField(date.getMilliseconds(), 3)}`;
+};
+
+const logCommand = (escapedCommand, {verbose}) => {
+	if (!verbose) {
+		return;
+	}
+
+	external_node_process_.stderr.write(`[${getTimestamp()}] ${escapedCommand}\n`);
+};
+
+;// CONCATENATED MODULE: ./node_modules/.pnpm/execa@8.0.1/node_modules/execa/index.js
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const DEFAULT_MAX_BUFFER = 1000 * 1000 * 100;
+
+const getEnv = ({env: envOption, extendEnv, preferLocal, localDir, execPath}) => {
+	const env = extendEnv ? {...external_node_process_.env, ...envOption} : envOption;
+
+	if (preferLocal) {
+		return npmRunPathEnv({env, cwd: localDir, execPath});
+	}
+
+	return env;
+};
+
+const handleArguments = (file, args, options = {}) => {
+	const parsed = cross_spawn._parse(file, args, options);
+	file = parsed.command;
+	args = parsed.args;
+	options = parsed.options;
+
+	options = {
+		maxBuffer: DEFAULT_MAX_BUFFER,
+		buffer: true,
+		stripFinalNewline: true,
+		extendEnv: true,
+		preferLocal: false,
+		localDir: options.cwd || external_node_process_.cwd(),
+		execPath: external_node_process_.execPath,
+		encoding: 'utf8',
+		reject: true,
+		cleanup: true,
+		all: false,
+		windowsHide: true,
+		verbose: verboseDefault,
+		...options,
+	};
+
+	options.env = getEnv(options);
+
+	options.stdio = normalizeStdio(options);
+
+	if (external_node_process_.platform === 'win32' && external_node_path_.basename(file, '.exe') === 'cmd') {
+		// #116
+		args.unshift('/q');
+	}
+
+	return {file, args, options, parsed};
+};
+
+const handleOutput = (options, value, error) => {
+	if (typeof value !== 'string' && !external_node_buffer_namespaceObject.Buffer.isBuffer(value)) {
+		// When `execaSync()` errors, we normalize it to '' to mimic `execa()`
+		return error === undefined ? undefined : '';
+	}
+
+	if (options.stripFinalNewline) {
+		return stripFinalNewline(value);
+	}
+
+	return value;
+};
+
+function execa(file, args, options) {
+	const parsed = handleArguments(file, args, options);
+	const command = joinCommand(file, args);
+	const escapedCommand = getEscapedCommand(file, args);
+	logCommand(escapedCommand, parsed.options);
+
+	validateTimeout(parsed.options);
+
+	let spawned;
+	try {
+		spawned = external_node_child_process_namespaceObject.spawn(parsed.file, parsed.args, parsed.options);
+	} catch (error) {
+		// Ensure the returned error is always both a promise and a child process
+		const dummySpawned = new external_node_child_process_namespaceObject.ChildProcess();
+		const errorPromise = Promise.reject(makeError({
+			error,
+			stdout: '',
+			stderr: '',
+			all: '',
+			command,
+			escapedCommand,
+			parsed,
+			timedOut: false,
+			isCanceled: false,
+			killed: false,
+		}));
+		mergePromise(dummySpawned, errorPromise);
+		return dummySpawned;
+	}
+
+	const spawnedPromise = getSpawnedPromise(spawned);
+	const timedPromise = setupTimeout(spawned, parsed.options, spawnedPromise);
+	const processDone = setExitHandler(spawned, parsed.options, timedPromise);
+
+	const context = {isCanceled: false};
+
+	spawned.kill = spawnedKill.bind(null, spawned.kill.bind(spawned));
+	spawned.cancel = spawnedCancel.bind(null, spawned, context);
+
+	const handlePromise = async () => {
+		const [{error, exitCode, signal, timedOut}, stdoutResult, stderrResult, allResult] = await getSpawnedResult(spawned, parsed.options, processDone);
+		const stdout = handleOutput(parsed.options, stdoutResult);
+		const stderr = handleOutput(parsed.options, stderrResult);
+		const all = handleOutput(parsed.options, allResult);
+
+		if (error || exitCode !== 0 || signal !== null) {
+			const returnedError = makeError({
+				error,
+				exitCode,
+				signal,
+				stdout,
+				stderr,
+				all,
+				command,
+				escapedCommand,
+				parsed,
+				timedOut,
+				isCanceled: context.isCanceled || (parsed.options.signal ? parsed.options.signal.aborted : false),
+				killed: spawned.killed,
+			});
+
+			if (!parsed.options.reject) {
+				return returnedError;
+			}
+
+			throw returnedError;
+		}
+
+		return {
+			command,
+			escapedCommand,
+			exitCode: 0,
+			stdout,
+			stderr,
+			all,
+			failed: false,
+			timedOut: false,
+			isCanceled: false,
+			killed: false,
+		};
+	};
+
+	const handlePromiseOnce = node_modules_onetime(handlePromise);
+
+	handleInput(spawned, parsed.options);
+
+	spawned.all = makeAllStream(spawned, parsed.options);
+
+	addPipeMethods(spawned);
+	mergePromise(spawned, handlePromiseOnce);
+	return spawned;
+}
+
+function execaSync(file, args, options) {
+	const parsed = handleArguments(file, args, options);
+	const command = joinCommand(file, args);
+	const escapedCommand = getEscapedCommand(file, args);
+	logCommand(escapedCommand, parsed.options);
+
+	const input = handleInputSync(parsed.options);
+
+	let result;
+	try {
+		result = external_node_child_process_namespaceObject.spawnSync(parsed.file, parsed.args, {...parsed.options, input});
+	} catch (error) {
+		throw makeError({
+			error,
+			stdout: '',
+			stderr: '',
+			all: '',
+			command,
+			escapedCommand,
+			parsed,
+			timedOut: false,
+			isCanceled: false,
+			killed: false,
+		});
+	}
+
+	const stdout = handleOutput(parsed.options, result.stdout, result.error);
+	const stderr = handleOutput(parsed.options, result.stderr, result.error);
+
+	if (result.error || result.status !== 0 || result.signal !== null) {
+		const error = makeError({
+			stdout,
+			stderr,
+			error: result.error,
+			signal: result.signal,
+			exitCode: result.status,
+			command,
+			escapedCommand,
+			parsed,
+			timedOut: result.error && result.error.code === 'ETIMEDOUT',
+			isCanceled: false,
+			killed: result.signal !== null,
+		});
+
+		if (!parsed.options.reject) {
+			return error;
+		}
+
+		throw error;
+	}
+
+	return {
+		command,
+		escapedCommand,
+		exitCode: 0,
+		stdout,
+		stderr,
+		failed: false,
+		timedOut: false,
+		isCanceled: false,
+		killed: false,
+	};
+}
+
+const normalizeScriptStdin = ({input, inputFile, stdio}) => input === undefined && inputFile === undefined && stdio === undefined
+	? {stdin: 'inherit'}
+	: {};
+
+const normalizeScriptOptions = (options = {}) => ({
+	preferLocal: true,
+	...normalizeScriptStdin(options),
+	...options,
+});
+
+function create$(options) {
+	function $(templatesOrOptions, ...expressions) {
+		if (!Array.isArray(templatesOrOptions)) {
+			return create$({...options, ...templatesOrOptions});
+		}
+
+		const [file, ...args] = parseTemplates(templatesOrOptions, expressions);
+		return execa(file, args, normalizeScriptOptions(options));
+	}
+
+	$.sync = (templates, ...expressions) => {
+		if (!Array.isArray(templates)) {
+			throw new TypeError('Please use $(options).sync`command` instead of $.sync(options)`command`.');
+		}
+
+		const [file, ...args] = parseTemplates(templates, expressions);
+		return execaSync(file, args, normalizeScriptOptions(options));
+	};
+
+	return $;
+}
+
+const $ = create$();
+
+function execaCommand(command, options) {
+	const [file, ...args] = parseCommand(command);
+	return execa(file, args, options);
+}
+
+function execaCommandSync(command, options) {
+	const [file, ...args] = parseCommand(command);
+	return execaSync(file, args, options);
+}
+
+function execaNode(scriptPath, args, options = {}) {
+	if (args && !Array.isArray(args) && typeof args === 'object') {
+		options = args;
+		args = [];
+	}
+
+	const stdio = normalizeStdioNode(options);
+	const defaultExecArgv = process.execArgv.filter(arg => !arg.startsWith('--inspect'));
+
+	const {
+		nodePath = process.execPath,
+		nodeOptions = defaultExecArgv,
+	} = options;
+
+	return execa(
+		nodePath,
+		[
+			...nodeOptions,
+			scriptPath,
+			...(Array.isArray(args) ? args : []),
+		],
+		{
+			...options,
+			stdin: undefined,
+			stdout: undefined,
+			stderr: undefined,
+			stdio,
+			shell: false,
+		},
+	);
+}
+
 ;// CONCATENATED MODULE: ./src/turbo-cache.ts
 
 
@@ -79814,24 +72218,16 @@ if (!turboToken) {
 const saveCache = async function saveCache(paths, key, _options, _enableCrossOsArchive) {
     const cwd = process.cwd();
     const workDir = external_path_default().join(external_os_default().tmpdir(), `rust-cache-${Date.now()}`);
-    await lib_default().mkdir(workDir, { recursive: true });
+    await external_fs_default().promises.mkdir(workDir, { recursive: true });
     for (const p of paths) {
         const relativePath = external_path_default().relative(cwd, p);
-        await lib_default().copy(p, external_path_default().join(workDir, relativePath));
+        await external_fs_default().promises.rename(p, external_path_default().join(workDir, relativePath));
     }
-    await new Promise(async (resolve, reject) => {
-        tar.c({
-            gzip: true,
-            cwd: workDir,
-            file: external_path_default().join(`${workDir}.tgz`),
-        }, [...(await lib_default().readdir(workDir))], (err) => {
-            if (err) {
-                return reject(err);
-            }
-            resolve();
-        });
+    await execa("tar", ["--zstd", "-cf", `${workDir}.tar.zstd`, "."], {
+        cwd: workDir,
+        stdio: "inherit",
     });
-    const body = await lib_default().readFile(`${workDir}.tgz`);
+    const body = external_fs_default().createReadStream(`${workDir}.tar.zstd`);
     const res = await fetch(`${turboApi}/v8/artifacts/${key}${turboTeam ? `?slug=${turboTeam}` : ""}`, {
         method: "PUT",
         headers: {
@@ -79839,6 +72235,7 @@ const saveCache = async function saveCache(paths, key, _options, _enableCrossOsA
         },
         body,
     });
+    await external_fs_default().promises.unlink(`${workDir}.tar.zstd`);
     if (!res.ok) {
         console.error(`Failed to save cache ${res.status}, ${await res.text()}`);
     }
@@ -79865,7 +72262,7 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
         return;
     }
     console.log(`Using restoreKey ${restoreKey}`);
-    const cacheFile = external_path_default().join(external_os_default().tmpdir(), `rust-cache-${restoreKey}.tgz`);
+    const cacheFile = external_path_default().join(external_os_default().tmpdir(), `rust-cache-${restoreKey}.tar.zstd`);
     const res = await fetch(`${turboApi}/v8/artifacts/${restoreKey}${turboTeam ? `?slug=${turboTeam}` : ""}`, {
         method: "GET",
         headers: {
@@ -79875,20 +72272,32 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
     if (!res.ok) {
         return;
     }
-    await lib_default().writeFile(cacheFile, Buffer.from(await res.arrayBuffer()));
+    await new Promise((resolve, reject) => {
+        const writeStream = external_fs_default().createWriteStream(cacheFile);
+        res.body
+            ?.pipe(writeStream)
+            .on("close", () => {
+            resolve(0);
+        })
+            .on("error", (error) => {
+            reject(error);
+        });
+    });
     console.log("Wrote cache file", cacheFile);
     const workDir = external_path_default().join(external_os_default().tmpdir(), `rust-cache-${Date.now()}`);
-    await lib_default().mkdir(workDir, { recursive: true });
-    await tar.x({
+    await external_fs_default().promises.mkdir(workDir, { recursive: true });
+    await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
         cwd: workDir,
-        file: cacheFile,
+        stdio: "inherit",
     });
-    for (const p of await lib_default().readdir(workDir)) {
+    for (const p of await external_fs_default().promises.readdir(workDir)) {
         console.log("moving", p, "from cache");
-        await lib_default().move(external_path_default().join(workDir, p), external_path_default().join(process.cwd(), p), {
-            overwrite: true,
-        });
+        const dest = external_path_default().join(process.cwd(), p);
+        await execa('rm', ['-rf', dest]);
+        await execa('mv', [external_path_default().join(workDir, p), dest]);
     }
+    await external_fs_default().promises.unlink(cacheFile);
+    await execa('rm', ['-rf', workDir]);
     return restoreKey;
 };
 
