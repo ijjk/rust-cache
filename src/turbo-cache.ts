@@ -24,8 +24,32 @@ export const saveCache: CacheInt["saveCache"] = async function saveCache(
   _options,
   _enableCrossOsArchive
 ) {
+  const existsRes = await fetch(
+    `${turboApi}/v8/artifacts/${key}${turboTeam ? `?slug=${turboTeam}` : ""}`,
+    {
+      method: "HEAD",
+      headers: {
+        Authorization: `Bearer ${turboToken}`,
+      },
+    }
+  );
+  
+  if (existsRes.ok) {
+    console.log('Cache already exists skipping save');
+    return 0
+  }
+  const cachePaths: string[] = []
+  
+  for (const p of paths) {
+    const relativePath = path.relative(cwd, p)
+    
+    if (!relativePath.startsWith('..')) {
+      cachePaths.push(relativePath)
+    }
+  }
+  
   const manifestFile = path.join(cwd, "cache-manifest.txt");
-  await fs.promises.writeFile(manifestFile, paths.join("\n"));
+  await fs.promises.writeFile(manifestFile, cachePaths.join("\n"));
 
   const cacheFile = `rust-cache-${Date.now()}.tar.zstd`;
 

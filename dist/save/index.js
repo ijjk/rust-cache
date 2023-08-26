@@ -72216,8 +72216,25 @@ if (!turboToken) {
 }
 const cwd = process.cwd();
 const saveCache = async function saveCache(paths, key, _options, _enableCrossOsArchive) {
+    const existsRes = await fetch(`${turboApi}/v8/artifacts/${key}${turboTeam ? `?slug=${turboTeam}` : ""}`, {
+        method: "HEAD",
+        headers: {
+            Authorization: `Bearer ${turboToken}`,
+        },
+    });
+    if (existsRes.ok) {
+        console.log('Cache already exists skipping save');
+        return 0;
+    }
+    const cachePaths = [];
+    for (const p of paths) {
+        const relativePath = external_path_default().relative(cwd, p);
+        if (!relativePath.startsWith('..')) {
+            cachePaths.push(relativePath);
+        }
+    }
     const manifestFile = external_path_default().join(cwd, "cache-manifest.txt");
-    await external_fs_default().promises.writeFile(manifestFile, paths.join("\n"));
+    await external_fs_default().promises.writeFile(manifestFile, cachePaths.join("\n"));
     const cacheFile = `rust-cache-${Date.now()}.tar.zstd`;
     await execa("tar", ["--zstd", "--files-from", manifestFile, "-cf", cacheFile], {
         cwd,
@@ -72572,7 +72589,7 @@ class CacheConfig {
         self.keyFiles = sort_and_uniq(keyFiles);
         key += `-${lockHash}`;
         self.cacheKey = key;
-        self.cachePaths = [config_CARGO_HOME];
+        self.cachePaths = [];
         const cacheTargets = core.getInput("cache-targets").toLowerCase() || "true";
         if (cacheTargets === "true") {
             self.cachePaths.push(...workspaces.map((ws) => ws.target));

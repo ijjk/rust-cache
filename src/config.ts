@@ -233,7 +233,7 @@ export class CacheConfig {
     key += `-${lockHash}`;
     self.cacheKey = key;
 
-    self.cachePaths = [CARGO_HOME];
+    self.cachePaths = [];
     const cacheTargets = core.getInput("cache-targets").toLowerCase() || "true";
     if (cacheTargets === "true") {
       self.cachePaths.push(...workspaces.map((ws) => ws.target));
