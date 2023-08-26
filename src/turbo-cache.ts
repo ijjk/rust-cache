@@ -1,8 +1,7 @@
 import fs from "fs";
-import os from "os";
 import path from "path";
-import fetch from "node-fetch";
 import { execa } from "execa";
+import fetch from "node-fetch";
 
 export { ReserveCacheError, ValidationError } from "@actions/cache";
 
@@ -92,12 +91,7 @@ export const restoreCache: CacheInt["restoreCache"] =
       return;
     }
     console.log(`Using restoreKey ${restoreKey}`);
-
-    const cacheFile = path.join(
-      os.tmpdir(),
-      `rust-cache-${restoreKey}.tar.zstd`
-    );
-
+    
     const res = await fetch(
       `${turboApi}/v8/artifacts/${restoreKey}${
         turboTeam ? `?slug=${turboTeam}` : ""
@@ -113,6 +107,7 @@ export const restoreCache: CacheInt["restoreCache"] =
     if (!res.ok) {
       return;
     }
+    const cacheFile = path.join(cwd, `rust-cache-${restoreKey}.tar.zstd`);
 
     await new Promise((resolve, reject) => {
       const writeStream = fs.createWriteStream(cacheFile);

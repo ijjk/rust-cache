@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 
-import { cleanBin, cleanGit, cleanRegistry, cleanTargetDir } from "./cleanup";
+import { cleanGit, cleanRegistry, cleanTargetDir } from "./cleanup";
 import { CacheConfig, isCacheUpToDate } from "./config";
 import { getCacheProvider, reportError } from "./utils";
 
@@ -54,12 +54,12 @@ async function run() {
       core.debug(`${(e as any).stack}`);
     }
 
-    try {
-      core.info(`... Cleaning cargo/bin ...`);
-      await cleanBin(config.cargoBins);
-    } catch (e) {
-      core.debug(`${(e as any).stack}`);
-    }
+    // try {
+    //   core.info(`... Cleaning cargo/bin ...`);
+    //   await cleanBin(config.cargoBins);
+    // } catch (e) {
+    //   core.debug(`${(e as any).stack}`);
+    // }
 
     try {
       core.info(`... Cleaning cargo git cache ...`);
