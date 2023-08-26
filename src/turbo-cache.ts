@@ -17,6 +17,7 @@ const turboToken = process.env.TURBO_TOKEN;
 if (!turboToken) {
   throw new Error(`TURBO_TOKEN env is missing`);
 }
+const cwd = process.cwd();
 
 export const saveCache: CacheInt["saveCache"] = async function saveCache(
   paths,
@@ -24,20 +25,20 @@ export const saveCache: CacheInt["saveCache"] = async function saveCache(
   _options,
   _enableCrossOsArchive
 ) {
-  const cwd = process.cwd();
-  const workDir = path.join(os.tmpdir(), `rust-cache-${Date.now()}`);
-  await fs.promises.mkdir(workDir, { recursive: true });
+  const manifestFile = path.join(cwd, "cache-manifest.txt");
+  await fs.promises.writeFile(manifestFile, paths.join("\n"));
 
-  for (const p of paths) {
-    const relativePath = path.relative(cwd, p);
-    await fs.promises.rename(p, path.join(workDir, relativePath));
-  }
+  const cacheFile = `rust-cache-${Date.now()}.tar.zstd`;
 
-  await execa("tar", ["--zstd", "-cf", `${workDir}.tar.zstd`, "."], {
-    cwd: workDir,
-    stdio: "inherit",
-  });
-  const body = fs.createReadStream(`${workDir}.tar.zstd`);
+  await execa(
+    "tar",
+    ["--zstd", "--files-from", manifestFile, "-cf", cacheFile],
+    {
+      cwd,
+      stdio: "inherit",
+    }
+  );
+  const body = fs.createReadStream(cacheFile);
 
   const res = await fetch(
     `${turboApi}/v8/artifacts/${key}${turboTeam ? `?slug=${turboTeam}` : ""}`,
@@ -49,9 +50,12 @@ export const saveCache: CacheInt["saveCache"] = async function saveCache(
       body,
     }
   );
-  await fs.promises.unlink(`${workDir}.tar.zstd`);
+  await fs.promises.unlink(cacheFile);
+  await fs.promises.unlink(manifestFile);
 
-  if (!res.ok) {
+  if (res.ok) {
+    console.log("Successfully uploaded cache", key);
+  } else {
     console.error(`Failed to save cache ${res.status}, ${await res.text()}`);
   }
   return 0;
@@ -89,7 +93,10 @@ export const restoreCache: CacheInt["restoreCache"] =
     }
     console.log(`Using restoreKey ${restoreKey}`);
 
-    const cacheFile = path.join(os.tmpdir(), `rust-cache-${restoreKey}.tar.zstd`);
+    const cacheFile = path.join(
+      os.tmpdir(),
+      `rust-cache-${restoreKey}.tar.zstd`
+    );
 
     const res = await fetch(
       `${turboApi}/v8/artifacts/${restoreKey}${
@@ -120,22 +127,11 @@ export const restoreCache: CacheInt["restoreCache"] =
     });
     console.log("Wrote cache file", cacheFile);
 
-    const workDir = path.join(os.tmpdir(), `rust-cache-${Date.now()}`);
-    await fs.promises.mkdir(workDir, { recursive: true });
-
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
-      cwd: workDir,
+      cwd,
       stdio: "inherit",
     });
 
-    for (const p of await fs.promises.readdir(workDir)) {
-      console.log("moving", p, "from cache");
-      const dest = path.join(process.cwd(), p);
-      await execa('rm', ['-rf', dest]);
-      await execa('mv', [path.join(workDir, p), dest]);
-    }
-    
     await fs.promises.unlink(cacheFile);
-    await execa('rm', ['-rf', workDir]);
     return restoreKey;
   };

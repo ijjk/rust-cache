@@ -72215,19 +72215,16 @@ const turboToken = process.env.TURBO_TOKEN;
 if (!turboToken) {
     throw new Error(`TURBO_TOKEN env is missing`);
 }
+const cwd = process.cwd();
 const saveCache = async function saveCache(paths, key, _options, _enableCrossOsArchive) {
-    const cwd = process.cwd();
-    const workDir = external_path_default().join(external_os_default().tmpdir(), `rust-cache-${Date.now()}`);
-    await external_fs_default().promises.mkdir(workDir, { recursive: true });
-    for (const p of paths) {
-        const relativePath = external_path_default().relative(cwd, p);
-        await external_fs_default().promises.rename(p, external_path_default().join(workDir, relativePath));
-    }
-    await execa("tar", ["--zstd", "-cf", `${workDir}.tar.zstd`, "."], {
-        cwd: workDir,
+    const manifestFile = external_path_default().join(cwd, "cache-manifest.txt");
+    await external_fs_default().promises.writeFile(manifestFile, paths.join("\n"));
+    const cacheFile = `rust-cache-${Date.now()}.tar.zstd`;
+    await execa("tar", ["--zstd", "--files-from", manifestFile, "-cf", cacheFile], {
+        cwd,
         stdio: "inherit",
     });
-    const body = external_fs_default().createReadStream(`${workDir}.tar.zstd`);
+    const body = external_fs_default().createReadStream(cacheFile);
     const res = await fetch(`${turboApi}/v8/artifacts/${key}${turboTeam ? `?slug=${turboTeam}` : ""}`, {
         method: "PUT",
         headers: {
@@ -72235,8 +72232,12 @@ const saveCache = async function saveCache(paths, key, _options, _enableCrossOsA
         },
         body,
     });
-    await external_fs_default().promises.unlink(`${workDir}.tar.zstd`);
-    if (!res.ok) {
+    await external_fs_default().promises.unlink(cacheFile);
+    await external_fs_default().promises.unlink(manifestFile);
+    if (res.ok) {
+        console.log("Successfully uploaded cache", key);
+    }
+    else {
         console.error(`Failed to save cache ${res.status}, ${await res.text()}`);
     }
     return 0;
@@ -72284,20 +72285,11 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
         });
     });
     console.log("Wrote cache file", cacheFile);
-    const workDir = external_path_default().join(external_os_default().tmpdir(), `rust-cache-${Date.now()}`);
-    await external_fs_default().promises.mkdir(workDir, { recursive: true });
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
-        cwd: workDir,
+        cwd,
         stdio: "inherit",
     });
-    for (const p of await external_fs_default().promises.readdir(workDir)) {
-        console.log("moving", p, "from cache");
-        const dest = external_path_default().join(process.cwd(), p);
-        await execa('rm', ['-rf', dest]);
-        await execa('mv', [external_path_default().join(workDir, p), dest]);
-    }
     await external_fs_default().promises.unlink(cacheFile);
-    await execa('rm', ['-rf', workDir]);
     return restoreKey;
 };
 
