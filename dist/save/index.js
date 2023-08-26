@@ -66919,8 +66919,6 @@ __nccwpck_require__.d(turbo_cache_namespaceObject, {
 
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+core@1.10.0/node_modules/@actions/core/lib/core.js
 var core = __nccwpck_require__(7733);
-// EXTERNAL MODULE: ./node_modules/.pnpm/@actions+exec@1.1.1/node_modules/@actions/exec/lib/exec.js
-var exec = __nccwpck_require__(1757);
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+io@1.1.3/node_modules/@actions/io/lib/io.js
 var io = __nccwpck_require__(8629);
 // EXTERNAL MODULE: external "fs"
@@ -67889,6 +67887,8 @@ function parse(toml) {
 
 
 
+// EXTERNAL MODULE: ./node_modules/.pnpm/@actions+exec@1.1.1/node_modules/@actions/exec/lib/exec.js
+var exec = __nccwpck_require__(1757);
 // EXTERNAL MODULE: ./node_modules/.pnpm/github-actions.cache-buildjet@0.2.0/node_modules/github-actions.cache-buildjet/lib/cache.js
 var lib_cache = __nccwpck_require__(2561);
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+cache@3.2.2/node_modules/@actions/cache/lib/cache.js
@@ -72997,7 +72997,6 @@ async function exists(path) {
 
 
 
-
 process.on("uncaughtException", (e) => {
     core.error(e.message);
     if (e.stack) {
@@ -73018,8 +73017,6 @@ async function run() {
         const config = CacheConfig.fromState();
         config.printInfo(cacheProvider);
         core.info("");
-        // TODO: remove this once https://github.com/actions/toolkit/pull/553 lands
-        await macOsWorkaround();
         const allPackages = [];
         for (const workspace of config.workspaces) {
             const packages = await workspace.getPackages();
@@ -73064,14 +73061,6 @@ async function run() {
     }
 }
 run();
-async function macOsWorkaround() {
-    try {
-        // Workaround for https://github.com/actions/cache/issues/403
-        // Also see https://github.com/rust-lang/cargo/issues/8603
-        await exec.exec("sudo", ["/usr/sbin/purge"], { silent: true });
-    }
-    catch { }
-}
 
 })();
 
