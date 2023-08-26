@@ -33,33 +33,39 @@ export const saveCache: CacheInt["saveCache"] = async function saveCache(
       },
     }
   );
-  
+
   if (existsRes.ok) {
-    console.log('Cache already exists skipping save');
-    return 0
+    console.log("Cache already exists skipping save");
+    return 0;
   }
-  const cachePaths: string[] = []
-  
+  const cachePaths: string[] = [];
+
   for (const p of paths) {
-    const relativePath = path.relative(cwd, p)
-    
-    if (!relativePath.startsWith('..')) {
-      cachePaths.push(relativePath)
+    const relativePath = path.relative(cwd, p);
+
+    if (!relativePath.startsWith("..")) {
+      cachePaths.push(relativePath);
     }
   }
-  
+
   const manifestFile = path.join(cwd, "cache-manifest.txt");
   await fs.promises.writeFile(manifestFile, cachePaths.join("\n"));
 
   const cacheFile = `rust-cache-${Date.now()}.tar.zstd`;
 
+  await execa("tar", ["--version"], {
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  await execa("zstd", ["--version"], {
+    stdio: ["ignore", "inherit", "inherit"],
+  });
   await execa(
     "tar",
-    ["--zstd", "--files-from", manifestFile, "-cf", cacheFile],
+    ["--zstd", "--files-from", "cache-manifest.txt", "-cf", cacheFile],
     {
       cwd,
-      stdio: "inherit",
-      timeout: 2 * 60 * 1000
+      stdio: ["ignore", "inherit", "inherit"],
+      timeout: 2 * 60 * 1000,
     }
   );
   const body = fs.createReadStream(cacheFile);
@@ -116,7 +122,7 @@ export const restoreCache: CacheInt["restoreCache"] =
       return;
     }
     console.log(`Using restoreKey ${restoreKey}`);
-    
+
     const res = await fetch(
       `${turboApi}/v8/artifacts/${restoreKey}${
         turboTeam ? `?slug=${turboTeam}` : ""
@@ -147,10 +153,16 @@ export const restoreCache: CacheInt["restoreCache"] =
     });
     console.log("Wrote cache file", cacheFile);
 
+    await execa("tar", ["--version"], {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    await execa("zstd", ["--version"], {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
       cwd,
-      stdio: "inherit",
-      timeout: 2 * 60 * 1000
+      stdio: ["ignore", "inherit", "inherit"],
+      timeout: 2 * 60 * 1000,
     });
 
     await fs.promises.unlink(cacheFile);

@@ -72223,23 +72223,29 @@ const saveCache = async function saveCache(paths, key, _options, _enableCrossOsA
         },
     });
     if (existsRes.ok) {
-        console.log('Cache already exists skipping save');
+        console.log("Cache already exists skipping save");
         return 0;
     }
     const cachePaths = [];
     for (const p of paths) {
         const relativePath = external_path_default().relative(cwd, p);
-        if (!relativePath.startsWith('..')) {
+        if (!relativePath.startsWith("..")) {
             cachePaths.push(relativePath);
         }
     }
     const manifestFile = external_path_default().join(cwd, "cache-manifest.txt");
     await external_fs_default().promises.writeFile(manifestFile, cachePaths.join("\n"));
     const cacheFile = `rust-cache-${Date.now()}.tar.zstd`;
-    await execa("tar", ["--zstd", "--files-from", manifestFile, "-cf", cacheFile], {
+    await execa("tar", ["--version"], {
+        stdio: ["ignore", "inherit", "inherit"],
+    });
+    await execa("zstd", ["--version"], {
+        stdio: ["ignore", "inherit", "inherit"],
+    });
+    await execa("tar", ["--zstd", "--files-from", "cache-manifest.txt", "-cf", cacheFile], {
         cwd,
-        stdio: "inherit",
-        timeout: 2 * 60 * 1000
+        stdio: ["ignore", "inherit", "inherit"],
+        timeout: 2 * 60 * 1000,
     });
     const body = external_fs_default().createReadStream(cacheFile);
     const res = await fetch(`${turboApi}/v8/artifacts/${key}${turboTeam ? `?slug=${turboTeam}` : ""}`, {
@@ -72302,10 +72308,16 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
         });
     });
     console.log("Wrote cache file", cacheFile);
+    await execa("tar", ["--version"], {
+        stdio: ["ignore", "inherit", "inherit"],
+    });
+    await execa("zstd", ["--version"], {
+        stdio: ["ignore", "inherit", "inherit"],
+    });
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
         cwd,
-        stdio: "inherit",
-        timeout: 2 * 60 * 1000
+        stdio: ["ignore", "inherit", "inherit"],
+        timeout: 2 * 60 * 1000,
     });
     await external_fs_default().promises.unlink(cacheFile);
     return restoreKey;
