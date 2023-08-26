@@ -59,6 +59,7 @@ export const saveCache: CacheInt["saveCache"] = async function saveCache(
     {
       cwd,
       stdio: "inherit",
+      timeout: 2 * 60 * 1000
     }
   );
   const body = fs.createReadStream(cacheFile);
@@ -149,6 +150,7 @@ export const restoreCache: CacheInt["restoreCache"] =
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
       cwd,
       stdio: "inherit",
+      timeout: 2 * 60 * 1000
     });
 
     await fs.promises.unlink(cacheFile);

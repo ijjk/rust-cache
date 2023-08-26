@@ -72239,6 +72239,7 @@ const saveCache = async function saveCache(paths, key, _options, _enableCrossOsA
     await execa("tar", ["--zstd", "--files-from", manifestFile, "-cf", cacheFile], {
         cwd,
         stdio: "inherit",
+        timeout: 2 * 60 * 1000
     });
     const body = external_fs_default().createReadStream(cacheFile);
     const res = await fetch(`${turboApi}/v8/artifacts/${key}${turboTeam ? `?slug=${turboTeam}` : ""}`, {
@@ -72304,6 +72305,7 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
         cwd,
         stdio: "inherit",
+        timeout: 2 * 60 * 1000
     });
     await external_fs_default().promises.unlink(cacheFile);
     return restoreKey;
