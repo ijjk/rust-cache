@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
 
-import { cleanGit, cleanRegistry, cleanTargetDir } from "./cleanup";
+// import { cleanGit, cleanRegistry, cleanTargetDir } from "./cleanup";
 import { CacheConfig, isCacheUpToDate } from "./config";
 import { getCacheProvider, reportError } from "./utils";
 
@@ -30,25 +30,25 @@ async function run() {
     config.printInfo(cacheProvider);
     core.info("");
 
-    const allPackages = [];
-    for (const workspace of config.workspaces) {
-      const packages = await workspace.getPackages();
-      allPackages.push(...packages);
-      try {
-        core.info(`... Cleaning ${workspace.target} ...`);
-        await cleanTargetDir(workspace.target, packages);
-      } catch (e) {
-        core.debug(`${(e as any).stack}`);
-      }
-    }
+    // const allPackages = [];
+    // for (const workspace of config.workspaces) {
+    //   const packages = await workspace.getPackages();
+    //   allPackages.push(...packages);
+    //   try {
+    //     core.info(`... Cleaning ${workspace.target} ...`);
+    //     await cleanTargetDir(workspace.target, packages);
+    //   } catch (e) {
+    //     core.debug(`${(e as any).stack}`);
+    //   }
+    // }
 
-    try {
-      const crates = core.getInput("cache-all-crates").toLowerCase() || "false";
-      core.info(`... Cleaning cargo registry (cache-all-crates: ${crates}) ...`);
-      await cleanRegistry(allPackages, crates !== "true");
-    } catch (e) {
-      core.debug(`${(e as any).stack}`);
-    }
+    // try {
+    //   const crates = core.getInput("cache-all-crates").toLowerCase() || "false";
+    //   core.info(`... Cleaning cargo registry (cache-all-crates: ${crates}) ...`);
+    //   await cleanRegistry(allPackages, crates !== "true");
+    // } catch (e) {
+    //   core.debug(`${(e as any).stack}`);
+    // }
 
     // try {
     //   core.info(`... Cleaning cargo/bin ...`);
@@ -57,12 +57,12 @@ async function run() {
     //   core.debug(`${(e as any).stack}`);
     // }
 
-    try {
-      core.info(`... Cleaning cargo git cache ...`);
-      await cleanGit(allPackages);
-    } catch (e) {
-      core.debug(`${(e as any).stack}`);
-    }
+    // try {
+    //   core.info(`... Cleaning cargo git cache ...`);
+    //   await cleanGit(allPackages);
+    // } catch (e) {
+    //   core.debug(`${(e as any).stack}`);
+    // }
 
     core.info(`... Saving cache ...`);
     // Pass a copy of cachePaths to avoid mutating the original array as reported by:

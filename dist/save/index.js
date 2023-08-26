@@ -66918,26 +66918,24 @@ __nccwpck_require__.d(turbo_cache_namespaceObject, {
 });
 
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+core@1.10.0/node_modules/@actions/core/lib/core.js
-var core = __nccwpck_require__(7733);
-// EXTERNAL MODULE: ./node_modules/.pnpm/@actions+io@1.1.3/node_modules/@actions/io/lib/io.js
-var io = __nccwpck_require__(8629);
-// EXTERNAL MODULE: external "fs"
-var external_fs_ = __nccwpck_require__(7147);
-var external_fs_default = /*#__PURE__*/__nccwpck_require__.n(external_fs_);
-// EXTERNAL MODULE: external "path"
-var external_path_ = __nccwpck_require__(1017);
-var external_path_default = /*#__PURE__*/__nccwpck_require__.n(external_path_);
+var lib_core = __nccwpck_require__(7733);
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+glob@0.4.0/node_modules/@actions/glob/lib/glob.js
 var glob = __nccwpck_require__(1256);
 // EXTERNAL MODULE: external "crypto"
 var external_crypto_ = __nccwpck_require__(6113);
 var external_crypto_default = /*#__PURE__*/__nccwpck_require__.n(external_crypto_);
+// EXTERNAL MODULE: external "fs"
+var external_fs_ = __nccwpck_require__(7147);
+var external_fs_default = /*#__PURE__*/__nccwpck_require__.n(external_fs_);
 // EXTERNAL MODULE: external "fs/promises"
 var promises_ = __nccwpck_require__(3292);
 var promises_default = /*#__PURE__*/__nccwpck_require__.n(promises_);
 // EXTERNAL MODULE: external "os"
 var external_os_ = __nccwpck_require__(2037);
 var external_os_default = /*#__PURE__*/__nccwpck_require__.n(external_os_);
+// EXTERNAL MODULE: external "path"
+var external_path_ = __nccwpck_require__(1017);
+var external_path_default = /*#__PURE__*/__nccwpck_require__.n(external_path_);
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/smol-toml@1.1.1/node_modules/smol-toml/dist/error.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
@@ -67886,6 +67884,286 @@ function parse(toml) {
 
 
 
+
+// EXTERNAL MODULE: ./node_modules/.pnpm/@actions+io@1.1.3/node_modules/@actions/io/lib/io.js
+var lib_io = __nccwpck_require__(8629);
+;// CONCATENATED MODULE: ./src/cleanup.ts
+
+
+
+
+
+async function cleanTargetDir(targetDir, packages, checkTimestamp = false) {
+    core.debug(`cleaning target directory "${targetDir}"`);
+    // remove all *files* from the profile directory
+    let dir = await fs.promises.opendir(targetDir);
+    for await (const dirent of dir) {
+        if (dirent.isDirectory()) {
+            let dirName = path.join(dir.path, dirent.name);
+            // is it a profile dir, or a nested target dir?
+            let isNestedTarget = (await exists(path.join(dirName, "CACHEDIR.TAG"))) || (await exists(path.join(dirName, ".rustc_info.json")));
+            try {
+                if (isNestedTarget) {
+                    await cleanTargetDir(dirName, packages, checkTimestamp);
+                }
+                else {
+                    await cleanProfileTarget(dirName, packages, checkTimestamp);
+                }
+            }
+            catch { }
+        }
+        else if (dirent.name !== "CACHEDIR.TAG") {
+            await rm(dir.path, dirent);
+        }
+    }
+}
+async function cleanProfileTarget(profileDir, packages, checkTimestamp = false) {
+    core.debug(`cleaning profile directory "${profileDir}"`);
+    let keepProfile = new Set(["build", ".fingerprint", "deps"]);
+    await rmExcept(profileDir, keepProfile);
+    const keepPkg = new Set(packages.map((p) => p.name));
+    await rmExcept(path.join(profileDir, "build"), keepPkg, checkTimestamp);
+    await rmExcept(path.join(profileDir, ".fingerprint"), keepPkg, checkTimestamp);
+    const keepDeps = new Set(packages.flatMap((p) => {
+        const names = [];
+        for (const n of [p.name, ...p.targets]) {
+            const name = n.replace(/-/g, "_");
+            names.push(name, `lib${name}`);
+        }
+        return names;
+    }));
+    await rmExcept(path.join(profileDir, "deps"), keepDeps, checkTimestamp);
+}
+async function getCargoBins() {
+    const bins = new Set();
+    try {
+        const { installs } = JSON.parse(await external_fs_default().promises.readFile(external_path_default().join(config_CARGO_HOME, ".crates2.json"), "utf8"));
+        for (const pkg of Object.values(installs)) {
+            for (const bin of pkg.bins) {
+                bins.add(bin);
+            }
+        }
+    }
+    catch { }
+    return bins;
+}
+/**
+ * Clean the cargo bin directory, removing the binaries that existed
+ * when the action started, as they were not created by the build.
+ *
+ * @param oldBins The binaries that existed when the action started.
+ */
+async function cleanBin(oldBins) {
+    const bins = await getCargoBins();
+    for (const bin of oldBins) {
+        bins.delete(bin);
+    }
+    const dir = await fs.promises.opendir(path.join(CARGO_HOME, "bin"));
+    for await (const dirent of dir) {
+        if (dirent.isFile() && !bins.has(dirent.name)) {
+            await rm(dir.path, dirent);
+        }
+    }
+}
+async function cleanRegistry(packages, crates = true) {
+    // remove `.cargo/credentials.toml`
+    try {
+        const credentials = path.join(CARGO_HOME, ".cargo", "credentials.toml");
+        core.debug(`deleting "${credentials}"`);
+        await fs.promises.unlink(credentials);
+    }
+    catch { }
+    // `.cargo/registry/index`
+    let pkgSet = new Set(packages.map((p) => p.name));
+    const indexDir = await fs.promises.opendir(path.join(CARGO_HOME, "registry", "index"));
+    for await (const dirent of indexDir) {
+        if (dirent.isDirectory()) {
+            // eg `.cargo/registry/index/github.com-1ecc6299db9ec823`
+            // or `.cargo/registry/index/index.crates.io-e139d0d48fed7772`
+            const dirPath = path.join(indexDir.path, dirent.name);
+            // for a git registry, we can remove `.cache`, as cargo will recreate it from git
+            if (await exists(path.join(dirPath, ".git"))) {
+                await rmRF(path.join(dirPath, ".cache"));
+            }
+            else {
+                await cleanRegistryIndexCache(dirPath, pkgSet);
+            }
+        }
+    }
+    if (!crates) {
+        core.debug("skipping registry cache and src cleanup");
+        return;
+    }
+    // `.cargo/registry/src`
+    // Cargo usually re-creates these from the `.crate` cache below,
+    // but for some reason that does not work for `-sys` crates that check timestamps
+    // to decide if rebuilds are necessary.
+    pkgSet = new Set(packages.filter((p) => p.name.endsWith("-sys")).map((p) => `${p.name}-${p.version}`));
+    const srcDir = await fs.promises.opendir(path.join(CARGO_HOME, "registry", "src"));
+    for await (const dirent of srcDir) {
+        if (dirent.isDirectory()) {
+            // eg `.cargo/registry/src/github.com-1ecc6299db9ec823`
+            // or `.cargo/registry/src/index.crates.io-e139d0d48fed7772`
+            const dir = await fs.promises.opendir(path.join(srcDir.path, dirent.name));
+            for await (const dirent of dir) {
+                if (dirent.isDirectory() && !pkgSet.has(dirent.name)) {
+                    await rmRF(path.join(dir.path, dirent.name));
+                }
+            }
+        }
+    }
+    // `.cargo/registry/cache`
+    pkgSet = new Set(packages.map((p) => `${p.name}-${p.version}.crate`));
+    const cacheDir = await fs.promises.opendir(path.join(CARGO_HOME, "registry", "cache"));
+    for await (const dirent of cacheDir) {
+        if (dirent.isDirectory()) {
+            // eg `.cargo/registry/cache/github.com-1ecc6299db9ec823`
+            // or `.cargo/registry/cache/index.crates.io-e139d0d48fed7772`
+            const dir = await fs.promises.opendir(path.join(cacheDir.path, dirent.name));
+            for await (const dirent of dir) {
+                // here we check that the downloaded `.crate` matches one from our dependencies
+                if (dirent.isFile() && !pkgSet.has(dirent.name)) {
+                    await rm(dir.path, dirent);
+                }
+            }
+        }
+    }
+}
+/// Recursively walks and cleans the index `.cache`
+async function cleanRegistryIndexCache(dirName, keepPkg) {
+    let dirIsEmpty = true;
+    const cacheDir = await fs.promises.opendir(dirName);
+    for await (const dirent of cacheDir) {
+        if (dirent.isDirectory()) {
+            if (await cleanRegistryIndexCache(path.join(dirName, dirent.name), keepPkg)) {
+                await rm(dirName, dirent);
+            }
+            else {
+                dirIsEmpty && (dirIsEmpty = false);
+            }
+        }
+        else {
+            if (keepPkg.has(dirent.name)) {
+                dirIsEmpty && (dirIsEmpty = false);
+            }
+            else {
+                await rm(dirName, dirent);
+            }
+        }
+    }
+    return dirIsEmpty;
+}
+async function cleanGit(packages) {
+    const coPath = path.join(CARGO_HOME, "git", "checkouts");
+    const dbPath = path.join(CARGO_HOME, "git", "db");
+    const repos = new Map();
+    for (const p of packages) {
+        if (!p.path.startsWith(coPath)) {
+            continue;
+        }
+        const [repo, ref] = p.path.slice(coPath.length + 1).split(path.sep);
+        const refs = repos.get(repo);
+        if (refs) {
+            refs.add(ref);
+        }
+        else {
+            repos.set(repo, new Set([ref]));
+        }
+    }
+    // we have to keep both the clone, and the checkout, removing either will
+    // trigger a rebuild
+    // clean the db
+    try {
+        let dir = await fs.promises.opendir(dbPath);
+        for await (const dirent of dir) {
+            if (!repos.has(dirent.name)) {
+                await rm(dir.path, dirent);
+            }
+        }
+    }
+    catch { }
+    // clean the checkouts
+    try {
+        let dir = await fs.promises.opendir(coPath);
+        for await (const dirent of dir) {
+            const refs = repos.get(dirent.name);
+            if (!refs) {
+                await rm(dir.path, dirent);
+                continue;
+            }
+            if (!dirent.isDirectory()) {
+                continue;
+            }
+            const refsDir = await fs.promises.opendir(path.join(dir.path, dirent.name));
+            for await (const dirent of refsDir) {
+                if (!refs.has(dirent.name)) {
+                    await rm(refsDir.path, dirent);
+                }
+            }
+        }
+    }
+    catch { }
+}
+const ONE_WEEK = (/* unused pure expression or super */ null && (7 * 24 * 3600 * 1000));
+/**
+ * Removes all files or directories in `dirName` matching some criteria.
+ *
+ * When the `checkTimestamp` flag is set, this will also remove anything older
+ * than one week.
+ *
+ * Otherwise, it will remove everything that does not match any string in the
+ * `keepPrefix` set.
+ * The matching strips and trailing `-$hash` suffix.
+ */
+async function rmExcept(dirName, keepPrefix, checkTimestamp = false) {
+    const dir = await fs.promises.opendir(dirName);
+    for await (const dirent of dir) {
+        if (checkTimestamp) {
+            const fileName = path.join(dir.path, dirent.name);
+            const { mtime } = await fs.promises.stat(fileName);
+            const isOutdated = Date.now() - mtime.getTime() > ONE_WEEK;
+            if (isOutdated) {
+                await rm(dir.path, dirent);
+            }
+            return;
+        }
+        let name = dirent.name;
+        // strip the trailing hash
+        const idx = name.lastIndexOf("-");
+        if (idx !== -1) {
+            name = name.slice(0, idx);
+        }
+        if (!keepPrefix.has(name)) {
+            await rm(dir.path, dirent);
+        }
+    }
+}
+async function rm(parent, dirent) {
+    try {
+        const fileName = path.join(parent, dirent.name);
+        core.debug(`deleting "${fileName}"`);
+        if (dirent.isFile()) {
+            await fs.promises.unlink(fileName);
+        }
+        else if (dirent.isDirectory()) {
+            await io.rmRF(fileName);
+        }
+    }
+    catch { }
+}
+async function rmRF(dirName) {
+    core.debug(`deleting "${dirName}"`);
+    await io.rmRF(dirName);
+}
+async function exists(path) {
+    try {
+        await fs.promises.access(path);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+exec@1.1.1/node_modules/@actions/exec/lib/exec.js
 var exec = __nccwpck_require__(1757);
@@ -72333,11 +72611,11 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
 function reportError(e) {
     const { commandFailed } = e;
     if (commandFailed) {
-        core.error(`Command failed: ${commandFailed.command}`);
-        core.error(commandFailed.stderr);
+        lib_core.error(`Command failed: ${commandFailed.command}`);
+        lib_core.error(commandFailed.stderr);
     }
     else {
-        core.error(`${e.stack}`);
+        lib_core.error(`${e.stack}`);
     }
 }
 async function getCmdOutput(cmd, args = [], options = {}) {
@@ -72367,7 +72645,7 @@ async function getCmdOutput(cmd, args = [], options = {}) {
     return stdout;
 }
 function getCacheProvider() {
-    const cacheProvider = core.getInput("cache-provider");
+    const cacheProvider = lib_core.getInput("cache-provider");
     const cache = cacheProvider === "turbo"
         ? turbo_cache_namespaceObject
         : cacheProvider === "github"
@@ -72397,11 +72675,11 @@ class Workspace {
     async getPackages() {
         let packages = [];
         try {
-            core.debug(`collecting metadata for "${this.root}"`);
+            lib_core.debug(`collecting metadata for "${this.root}"`);
             const meta = JSON.parse(await getCmdOutput("cargo", ["metadata", "--all-features", "--format-version", "1"], {
                 cwd: this.root,
             }));
-            core.debug(`workspace "${this.root}" has ${meta.packages.length} packages`);
+            lib_core.debug(`workspace "${this.root}" has ${meta.packages.length} packages`);
             for (const pkg of meta.packages) {
                 if (pkg.manifest_path.startsWith(this.root)) {
                     continue;
@@ -72462,13 +72740,13 @@ class CacheConfig {
         // Construct key prefix:
         // This uses either the `shared-key` input,
         // or the `key` input combined with the `job` key.
-        let key = core.getInput("prefix-key") || "v0-rust";
-        const sharedKey = core.getInput("shared-key");
+        let key = lib_core.getInput("prefix-key") || "v0-rust";
+        const sharedKey = lib_core.getInput("shared-key");
         if (sharedKey) {
             key += `-${sharedKey}`;
         }
         else {
-            const inputKey = core.getInput("key");
+            const inputKey = lib_core.getInput("key");
             if (inputKey) {
                 key += `-${inputKey}`;
             }
@@ -72493,7 +72771,7 @@ class CacheConfig {
         self.keyRust = keyRust;
         // these prefixes should cover most of the compiler / rust / cargo keys
         const envPrefixes = ["CARGO", "CC", "CFLAGS", "CXX", "CMAKE", "RUST"];
-        envPrefixes.push(...core.getInput("env-vars").split(/\s+/).filter(Boolean));
+        envPrefixes.push(...lib_core.getInput("env-vars").split(/\s+/).filter(Boolean));
         // sort the available env vars so we have a more stable hash
         const keyEnvs = [];
         const envKeys = Object.keys(process.env);
@@ -72514,7 +72792,7 @@ class CacheConfig {
         // Constructs the workspace config and paths to restore:
         // The workspaces are given using a `$workspace -> $target` syntax.
         const workspaces = [];
-        const workspacesInput = core.getInput("workspaces") || ".";
+        const workspacesInput = lib_core.getInput("workspaces") || ".";
         for (const workspace of workspacesInput.trim().split("\n")) {
             let [root, target = "target"] = workspace.split("->").map((s) => s.trim());
             root = external_path_default().resolve(root);
@@ -72565,7 +72843,7 @@ class CacheConfig {
                     parsedKeyFiles.push(cargo_manifest);
                 }
                 catch (e) { // Fallback to caching them as regular file
-                    core.warning(`Error parsing Cargo.toml manifest, fallback to caching entire file: ${e}`);
+                    lib_core.warning(`Error parsing Cargo.toml manifest, fallback to caching entire file: ${e}`);
                     keyFiles.push(cargo_manifest);
                 }
             }
@@ -72577,7 +72855,7 @@ class CacheConfig {
                     if (parsed.version !== 3 || !("package" in parsed)) {
                         // Fallback to caching them as regular file since this action
                         // can only handle Cargo.lock format version 3
-                        core.warning('Unsupported Cargo.lock format, fallback to caching entire file');
+                        lib_core.warning('Unsupported Cargo.lock format, fallback to caching entire file');
                         keyFiles.push(cargo_lock);
                         continue;
                     }
@@ -72588,7 +72866,7 @@ class CacheConfig {
                     parsedKeyFiles.push(cargo_lock);
                 }
                 catch (e) { // Fallback to caching them as regular file
-                    core.warning(`Error parsing Cargo.lock manifest, fallback to caching entire file: ${e}`);
+                    lib_core.warning(`Error parsing Cargo.lock manifest, fallback to caching entire file: ${e}`);
                     keyFiles.push(cargo_lock);
                 }
             }
@@ -72605,11 +72883,11 @@ class CacheConfig {
         key += `-${lockHash}`;
         self.cacheKey = key;
         self.cachePaths = [];
-        const cacheTargets = core.getInput("cache-targets").toLowerCase() || "true";
+        const cacheTargets = lib_core.getInput("cache-targets").toLowerCase() || "true";
         if (cacheTargets === "true") {
             self.cachePaths.push(...workspaces.map((ws) => ws.target));
         }
-        const cacheDirectories = core.getInput("cache-directories");
+        const cacheDirectories = lib_core.getInput("cache-directories");
         for (const dir of cacheDirectories.trim().split(/\s+/).filter(Boolean)) {
             self.cachePaths.push(dir);
         }
@@ -72626,7 +72904,7 @@ class CacheConfig {
      * @see {@link CacheConfig#new}
      */
     static fromState() {
-        const source = core.getState(STATE_CONFIG);
+        const source = lib_core.getState(STATE_CONFIG);
         if (!source) {
             throw new Error("Cache configuration not found in state");
         }
@@ -72639,40 +72917,40 @@ class CacheConfig {
      * Prints the configuration to the action log.
      */
     printInfo(cacheProvider) {
-        core.startGroup("Cache Configuration");
-        core.info(`Cache Provider:`);
-        core.info(`    ${cacheProvider.name}`);
-        core.info(`Workspaces:`);
+        lib_core.startGroup("Cache Configuration");
+        lib_core.info(`Cache Provider:`);
+        lib_core.info(`    ${cacheProvider.name}`);
+        lib_core.info(`Workspaces:`);
         for (const workspace of this.workspaces) {
-            core.info(`    ${workspace.root}`);
+            lib_core.info(`    ${workspace.root}`);
         }
-        core.info(`Cache Paths:`);
+        lib_core.info(`Cache Paths:`);
         for (const path of this.cachePaths) {
-            core.info(`    ${path}`);
+            lib_core.info(`    ${path}`);
         }
-        core.info(`Restore Key:`);
-        core.info(`    ${this.restoreKey}`);
-        core.info(`Cache Key:`);
-        core.info(`    ${this.cacheKey}`);
-        core.info(`.. Prefix:`);
-        core.info(`  - ${this.keyPrefix}`);
-        core.info(`.. Environment considered:`);
-        core.info(`  - Rust Version: ${this.keyRust}`);
+        lib_core.info(`Restore Key:`);
+        lib_core.info(`    ${this.restoreKey}`);
+        lib_core.info(`Cache Key:`);
+        lib_core.info(`    ${this.cacheKey}`);
+        lib_core.info(`.. Prefix:`);
+        lib_core.info(`  - ${this.keyPrefix}`);
+        lib_core.info(`.. Environment considered:`);
+        lib_core.info(`  - Rust Version: ${this.keyRust}`);
         for (const env of this.keyEnvs) {
-            core.info(`  - ${env}`);
+            lib_core.info(`  - ${env}`);
         }
-        core.info(`.. Lockfiles considered:`);
+        lib_core.info(`.. Lockfiles considered:`);
         for (const file of this.keyFiles) {
-            core.info(`  - ${file}`);
+            lib_core.info(`  - ${file}`);
         }
-        core.endGroup();
+        lib_core.endGroup();
     }
     /**
      * Saves the configuration to the state store.
      * This is used to restore the configuration in the post action.
      */
     saveState() {
-        core.saveState(STATE_CONFIG, this);
+        lib_core.saveState(STATE_CONFIG, this);
     }
 }
 /**
@@ -72681,7 +72959,7 @@ class CacheConfig {
  * @returns `true` if the cache is up to date, `false` otherwise.
  */
 function isCacheUpToDate() {
-    return core.getState(STATE_CONFIG) === "";
+    return lib_core.getState(STATE_CONFIG) === "";
 }
 /**
  * Returns a hex digest of the given hasher truncated to `HASH_LENGTH`.
@@ -72727,343 +73005,62 @@ function sort_and_uniq(a) {
     }, []);
 }
 
-;// CONCATENATED MODULE: ./src/cleanup.ts
-
-
-
-
-
-async function cleanTargetDir(targetDir, packages, checkTimestamp = false) {
-    core.debug(`cleaning target directory "${targetDir}"`);
-    // remove all *files* from the profile directory
-    let dir = await external_fs_default().promises.opendir(targetDir);
-    for await (const dirent of dir) {
-        if (dirent.isDirectory()) {
-            let dirName = external_path_default().join(dir.path, dirent.name);
-            // is it a profile dir, or a nested target dir?
-            let isNestedTarget = (await exists(external_path_default().join(dirName, "CACHEDIR.TAG"))) || (await exists(external_path_default().join(dirName, ".rustc_info.json")));
-            try {
-                if (isNestedTarget) {
-                    await cleanTargetDir(dirName, packages, checkTimestamp);
-                }
-                else {
-                    await cleanProfileTarget(dirName, packages, checkTimestamp);
-                }
-            }
-            catch { }
-        }
-        else if (dirent.name !== "CACHEDIR.TAG") {
-            await rm(dir.path, dirent);
-        }
-    }
-}
-async function cleanProfileTarget(profileDir, packages, checkTimestamp = false) {
-    core.debug(`cleaning profile directory "${profileDir}"`);
-    let keepProfile = new Set(["build", ".fingerprint", "deps"]);
-    await rmExcept(profileDir, keepProfile);
-    const keepPkg = new Set(packages.map((p) => p.name));
-    await rmExcept(external_path_default().join(profileDir, "build"), keepPkg, checkTimestamp);
-    await rmExcept(external_path_default().join(profileDir, ".fingerprint"), keepPkg, checkTimestamp);
-    const keepDeps = new Set(packages.flatMap((p) => {
-        const names = [];
-        for (const n of [p.name, ...p.targets]) {
-            const name = n.replace(/-/g, "_");
-            names.push(name, `lib${name}`);
-        }
-        return names;
-    }));
-    await rmExcept(external_path_default().join(profileDir, "deps"), keepDeps, checkTimestamp);
-}
-async function getCargoBins() {
-    const bins = new Set();
-    try {
-        const { installs } = JSON.parse(await external_fs_default().promises.readFile(external_path_default().join(config_CARGO_HOME, ".crates2.json"), "utf8"));
-        for (const pkg of Object.values(installs)) {
-            for (const bin of pkg.bins) {
-                bins.add(bin);
-            }
-        }
-    }
-    catch { }
-    return bins;
-}
-/**
- * Clean the cargo bin directory, removing the binaries that existed
- * when the action started, as they were not created by the build.
- *
- * @param oldBins The binaries that existed when the action started.
- */
-async function cleanBin(oldBins) {
-    const bins = await getCargoBins();
-    for (const bin of oldBins) {
-        bins.delete(bin);
-    }
-    const dir = await fs.promises.opendir(path.join(CARGO_HOME, "bin"));
-    for await (const dirent of dir) {
-        if (dirent.isFile() && !bins.has(dirent.name)) {
-            await rm(dir.path, dirent);
-        }
-    }
-}
-async function cleanRegistry(packages, crates = true) {
-    // remove `.cargo/credentials.toml`
-    try {
-        const credentials = external_path_default().join(config_CARGO_HOME, ".cargo", "credentials.toml");
-        core.debug(`deleting "${credentials}"`);
-        await external_fs_default().promises.unlink(credentials);
-    }
-    catch { }
-    // `.cargo/registry/index`
-    let pkgSet = new Set(packages.map((p) => p.name));
-    const indexDir = await external_fs_default().promises.opendir(external_path_default().join(config_CARGO_HOME, "registry", "index"));
-    for await (const dirent of indexDir) {
-        if (dirent.isDirectory()) {
-            // eg `.cargo/registry/index/github.com-1ecc6299db9ec823`
-            // or `.cargo/registry/index/index.crates.io-e139d0d48fed7772`
-            const dirPath = external_path_default().join(indexDir.path, dirent.name);
-            // for a git registry, we can remove `.cache`, as cargo will recreate it from git
-            if (await exists(external_path_default().join(dirPath, ".git"))) {
-                await rmRF(external_path_default().join(dirPath, ".cache"));
-            }
-            else {
-                await cleanRegistryIndexCache(dirPath, pkgSet);
-            }
-        }
-    }
-    if (!crates) {
-        core.debug("skipping registry cache and src cleanup");
-        return;
-    }
-    // `.cargo/registry/src`
-    // Cargo usually re-creates these from the `.crate` cache below,
-    // but for some reason that does not work for `-sys` crates that check timestamps
-    // to decide if rebuilds are necessary.
-    pkgSet = new Set(packages.filter((p) => p.name.endsWith("-sys")).map((p) => `${p.name}-${p.version}`));
-    const srcDir = await external_fs_default().promises.opendir(external_path_default().join(config_CARGO_HOME, "registry", "src"));
-    for await (const dirent of srcDir) {
-        if (dirent.isDirectory()) {
-            // eg `.cargo/registry/src/github.com-1ecc6299db9ec823`
-            // or `.cargo/registry/src/index.crates.io-e139d0d48fed7772`
-            const dir = await external_fs_default().promises.opendir(external_path_default().join(srcDir.path, dirent.name));
-            for await (const dirent of dir) {
-                if (dirent.isDirectory() && !pkgSet.has(dirent.name)) {
-                    await rmRF(external_path_default().join(dir.path, dirent.name));
-                }
-            }
-        }
-    }
-    // `.cargo/registry/cache`
-    pkgSet = new Set(packages.map((p) => `${p.name}-${p.version}.crate`));
-    const cacheDir = await external_fs_default().promises.opendir(external_path_default().join(config_CARGO_HOME, "registry", "cache"));
-    for await (const dirent of cacheDir) {
-        if (dirent.isDirectory()) {
-            // eg `.cargo/registry/cache/github.com-1ecc6299db9ec823`
-            // or `.cargo/registry/cache/index.crates.io-e139d0d48fed7772`
-            const dir = await external_fs_default().promises.opendir(external_path_default().join(cacheDir.path, dirent.name));
-            for await (const dirent of dir) {
-                // here we check that the downloaded `.crate` matches one from our dependencies
-                if (dirent.isFile() && !pkgSet.has(dirent.name)) {
-                    await rm(dir.path, dirent);
-                }
-            }
-        }
-    }
-}
-/// Recursively walks and cleans the index `.cache`
-async function cleanRegistryIndexCache(dirName, keepPkg) {
-    let dirIsEmpty = true;
-    const cacheDir = await external_fs_default().promises.opendir(dirName);
-    for await (const dirent of cacheDir) {
-        if (dirent.isDirectory()) {
-            if (await cleanRegistryIndexCache(external_path_default().join(dirName, dirent.name), keepPkg)) {
-                await rm(dirName, dirent);
-            }
-            else {
-                dirIsEmpty && (dirIsEmpty = false);
-            }
-        }
-        else {
-            if (keepPkg.has(dirent.name)) {
-                dirIsEmpty && (dirIsEmpty = false);
-            }
-            else {
-                await rm(dirName, dirent);
-            }
-        }
-    }
-    return dirIsEmpty;
-}
-async function cleanGit(packages) {
-    const coPath = external_path_default().join(config_CARGO_HOME, "git", "checkouts");
-    const dbPath = external_path_default().join(config_CARGO_HOME, "git", "db");
-    const repos = new Map();
-    for (const p of packages) {
-        if (!p.path.startsWith(coPath)) {
-            continue;
-        }
-        const [repo, ref] = p.path.slice(coPath.length + 1).split((external_path_default()).sep);
-        const refs = repos.get(repo);
-        if (refs) {
-            refs.add(ref);
-        }
-        else {
-            repos.set(repo, new Set([ref]));
-        }
-    }
-    // we have to keep both the clone, and the checkout, removing either will
-    // trigger a rebuild
-    // clean the db
-    try {
-        let dir = await external_fs_default().promises.opendir(dbPath);
-        for await (const dirent of dir) {
-            if (!repos.has(dirent.name)) {
-                await rm(dir.path, dirent);
-            }
-        }
-    }
-    catch { }
-    // clean the checkouts
-    try {
-        let dir = await external_fs_default().promises.opendir(coPath);
-        for await (const dirent of dir) {
-            const refs = repos.get(dirent.name);
-            if (!refs) {
-                await rm(dir.path, dirent);
-                continue;
-            }
-            if (!dirent.isDirectory()) {
-                continue;
-            }
-            const refsDir = await external_fs_default().promises.opendir(external_path_default().join(dir.path, dirent.name));
-            for await (const dirent of refsDir) {
-                if (!refs.has(dirent.name)) {
-                    await rm(refsDir.path, dirent);
-                }
-            }
-        }
-    }
-    catch { }
-}
-const ONE_WEEK = 7 * 24 * 3600 * 1000;
-/**
- * Removes all files or directories in `dirName` matching some criteria.
- *
- * When the `checkTimestamp` flag is set, this will also remove anything older
- * than one week.
- *
- * Otherwise, it will remove everything that does not match any string in the
- * `keepPrefix` set.
- * The matching strips and trailing `-$hash` suffix.
- */
-async function rmExcept(dirName, keepPrefix, checkTimestamp = false) {
-    const dir = await external_fs_default().promises.opendir(dirName);
-    for await (const dirent of dir) {
-        if (checkTimestamp) {
-            const fileName = external_path_default().join(dir.path, dirent.name);
-            const { mtime } = await external_fs_default().promises.stat(fileName);
-            const isOutdated = Date.now() - mtime.getTime() > ONE_WEEK;
-            if (isOutdated) {
-                await rm(dir.path, dirent);
-            }
-            return;
-        }
-        let name = dirent.name;
-        // strip the trailing hash
-        const idx = name.lastIndexOf("-");
-        if (idx !== -1) {
-            name = name.slice(0, idx);
-        }
-        if (!keepPrefix.has(name)) {
-            await rm(dir.path, dirent);
-        }
-    }
-}
-async function rm(parent, dirent) {
-    try {
-        const fileName = external_path_default().join(parent, dirent.name);
-        core.debug(`deleting "${fileName}"`);
-        if (dirent.isFile()) {
-            await external_fs_default().promises.unlink(fileName);
-        }
-        else if (dirent.isDirectory()) {
-            await io.rmRF(fileName);
-        }
-    }
-    catch { }
-}
-async function rmRF(dirName) {
-    core.debug(`deleting "${dirName}"`);
-    await io.rmRF(dirName);
-}
-async function exists(path) {
-    try {
-        await external_fs_default().promises.access(path);
-        return true;
-    }
-    catch {
-        return false;
-    }
-}
-
 ;// CONCATENATED MODULE: ./src/save.ts
 
-
+// import { cleanGit, cleanRegistry, cleanTargetDir } from "./cleanup";
 
 
 process.on("uncaughtException", (e) => {
-    core.error(e.message);
+    lib_core.error(e.message);
     if (e.stack) {
-        core.error(e.stack);
+        lib_core.error(e.stack);
     }
 });
 async function run() {
     const cacheProvider = getCacheProvider();
-    const save = core.getInput("save-if").toLowerCase() || "true";
+    const save = lib_core.getInput("save-if").toLowerCase() || "true";
     if (!(cacheProvider.cache.isFeatureAvailable() && save === "true")) {
         return;
     }
     try {
         if (isCacheUpToDate()) {
-            core.info(`Cache up-to-date.`);
+            lib_core.info(`Cache up-to-date.`);
             return;
         }
         const config = CacheConfig.fromState();
         config.printInfo(cacheProvider);
-        core.info("");
-        const allPackages = [];
-        for (const workspace of config.workspaces) {
-            const packages = await workspace.getPackages();
-            allPackages.push(...packages);
-            try {
-                core.info(`... Cleaning ${workspace.target} ...`);
-                await cleanTargetDir(workspace.target, packages);
-            }
-            catch (e) {
-                core.debug(`${e.stack}`);
-            }
-        }
-        try {
-            const crates = core.getInput("cache-all-crates").toLowerCase() || "false";
-            core.info(`... Cleaning cargo registry (cache-all-crates: ${crates}) ...`);
-            await cleanRegistry(allPackages, crates !== "true");
-        }
-        catch (e) {
-            core.debug(`${e.stack}`);
-        }
+        lib_core.info("");
+        // const allPackages = [];
+        // for (const workspace of config.workspaces) {
+        //   const packages = await workspace.getPackages();
+        //   allPackages.push(...packages);
+        //   try {
+        //     core.info(`... Cleaning ${workspace.target} ...`);
+        //     await cleanTargetDir(workspace.target, packages);
+        //   } catch (e) {
+        //     core.debug(`${(e as any).stack}`);
+        //   }
+        // }
+        // try {
+        //   const crates = core.getInput("cache-all-crates").toLowerCase() || "false";
+        //   core.info(`... Cleaning cargo registry (cache-all-crates: ${crates}) ...`);
+        //   await cleanRegistry(allPackages, crates !== "true");
+        // } catch (e) {
+        //   core.debug(`${(e as any).stack}`);
+        // }
         // try {
         //   core.info(`... Cleaning cargo/bin ...`);
         //   await cleanBin(config.cargoBins);
         // } catch (e) {
         //   core.debug(`${(e as any).stack}`);
         // }
-        try {
-            core.info(`... Cleaning cargo git cache ...`);
-            await cleanGit(allPackages);
-        }
-        catch (e) {
-            core.debug(`${e.stack}`);
-        }
-        core.info(`... Saving cache ...`);
+        // try {
+        //   core.info(`... Cleaning cargo git cache ...`);
+        //   await cleanGit(allPackages);
+        // } catch (e) {
+        //   core.debug(`${(e as any).stack}`);
+        // }
+        lib_core.info(`... Saving cache ...`);
         // Pass a copy of cachePaths to avoid mutating the original array as reported by:
         // https://github.com/actions/toolkit/pull/1378
         // TODO: remove this once the underlying bug is fixed.
