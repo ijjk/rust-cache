@@ -159,7 +159,7 @@ export const restoreCache: CacheInt["restoreCache"] =
     await execa("zstd", ["--version"], {
       stdio: ["ignore", "inherit", "inherit"],
     });
-    await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
+    await execa("tar", ["--zstd", "-xf", `${path.basename(cacheFile)}`], {
       cwd,
       shell: process.env.SHELL || 'bash',
       stdio: ["ignore", "inherit", "inherit"],

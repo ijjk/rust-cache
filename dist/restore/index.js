@@ -72314,7 +72314,7 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
     await execa("zstd", ["--version"], {
         stdio: ["ignore", "inherit", "inherit"],
     });
-    await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
+    await execa("tar", ["--zstd", "-xf", `${external_path_default().basename(cacheFile)}`], {
         cwd,
         shell: process.env.SHELL || 'bash',
         stdio: ["ignore", "inherit", "inherit"],
