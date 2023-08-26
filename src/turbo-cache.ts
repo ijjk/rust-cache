@@ -52,7 +52,7 @@ export const saveCache: CacheInt["saveCache"] = async function saveCache(
   await fs.promises.writeFile(manifestFile, cachePaths.join("\n"));
 
   const cacheFile = `rust-cache-${Date.now()}.tar.zstd`;
-
+  
   await execa("tar", ["--version"], {
     stdio: ["ignore", "inherit", "inherit"],
   });
@@ -63,7 +63,7 @@ export const saveCache: CacheInt["saveCache"] = async function saveCache(
     "tar",
     ["--zstd", "--files-from", "cache-manifest.txt", "-cf", cacheFile],
     {
-      cwd,
+      shell: process.env.SHELL || 'bash',
       stdio: ["ignore", "inherit", "inherit"],
       timeout: 2 * 60 * 1000,
     }
@@ -161,6 +161,7 @@ export const restoreCache: CacheInt["restoreCache"] =
     });
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
       cwd,
+      shell: process.env.SHELL || 'bash',
       stdio: ["ignore", "inherit", "inherit"],
       timeout: 2 * 60 * 1000,
     });

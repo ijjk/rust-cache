@@ -72243,7 +72243,7 @@ const saveCache = async function saveCache(paths, key, _options, _enableCrossOsA
         stdio: ["ignore", "inherit", "inherit"],
     });
     await execa("tar", ["--zstd", "--files-from", "cache-manifest.txt", "-cf", cacheFile], {
-        cwd,
+        shell: process.env.SHELL || 'bash',
         stdio: ["ignore", "inherit", "inherit"],
         timeout: 2 * 60 * 1000,
     });
@@ -72316,6 +72316,7 @@ const restoreCache = async function restoreCache(_paths, primaryKey, restoreKeys
     });
     await execa("tar", ["--zstd", "-xf", `${cacheFile}`], {
         cwd,
+        shell: process.env.SHELL || 'bash',
         stdio: ["ignore", "inherit", "inherit"],
         timeout: 2 * 60 * 1000,
     });
